@@ -13,7 +13,7 @@
 <br />
 
 **A simple, plugin-based engine for scraping media streams and subtitles.**
-Load provider plugins from **GitHub**, **local files**, or **directly in code** — with health tracking, auto-updates, caching, and more built right in. Works in Node.js, browsers, and React Native.
+Load provider plugins from **GitHub**, **local files**, or **directly in code** — with health tracking, auto-updates, caching, and more built right in. Works in Node.js, browsers, React and React Native.
 
 </div>
 
