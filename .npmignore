@@ -1,0 +1,48 @@
+# Source (published package uses dist/)
+src/
+index.ts
+
+# Development files
+*.config.js
+*.config.cjs
+.github/
+.eslintrc.js
+.eslintignore
+tsconfig.json
+jest.config.js
+jest.config.cjs
+.gitignore
+.prettierrc
+
+# Tests
+tests/
+__tests__/
+*.test.ts
+*.spec.ts
+
+# Misc
+.DS_Store
+*.log
+.vscode/
+.idea/
+node_modules/
+coverage/
+providers/
+
+# Build process files
+webpack.config.js
+rollup.config.js
+babel.config.js
+
+# Environment files
+.env*
+
+setup-tests.js
+yarn-error.log
+*.png
+.circleci/config.yml
+.eslintcache
+.npmrc
+
+# Documentation extras
+docs/

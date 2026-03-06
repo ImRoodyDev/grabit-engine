@@ -1,0 +1,103 @@
+{
+	"name": "grabit-engine",
+	"version": "1.0.0",
+	"description": "A plugin-based engine for scraping media streams and subtitles. Works in Node.js, browsers, and React Native. Load plugins from GitHub, local files, or code — with caching, health tracking, and auto-updates built in.",
+	"source": "./src/index.ts",
+	"main": "./dist/src/index.js",
+	"module": "./dist/src/index.js",
+	"types": "./dist/src/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/src/index.d.ts",
+			"import": "./dist/src/index.js",
+			"require": "./dist/src/index.js",
+			"react-native": "./src/index.ts"
+		}
+	},
+	"files": [
+		"dist/src",
+		"src",
+		"scripts",
+		"README.md",
+		"BUNDLING.md",
+		"API_REFERENCE.md",
+		"LICENSE"
+	],
+	"bin": {
+		"create-provider": "./scripts/create-provider.js",
+		"bundle-provider": "./scripts/bundle-provider.js",
+		"test-provider": "./scripts/test-provider.js"
+	},
+	"scripts": {
+		"watch": "tsc -w",
+		"test": "jest",
+		"build": "tsc",
+		"build:local": "npm run build && npm pack",
+		"prepublishOnly": "npm run build",
+		"create-provider": "node scripts/create-provider.js",
+		"bundle": "node scripts/bundle-provider.js",
+		"bundle:clean": "node scripts/bundle-provider.js --clean",
+		"test-provider": "node scripts/test-provider.js"
+	},
+	"keywords": [
+		"scraper",
+		"stream",
+		"media",
+		"plugin",
+		"provider",
+		"engine",
+		"subtitles",
+		"streaming",
+		"react-native",
+		"tmdb",
+		"cheerio",
+		"puppeteer",
+		"proxy",
+		"cloudflare-bypass",
+		"impit"
+	],
+	"author": "",
+	"license": "ISC",
+	"devDependencies": {
+		"@babel/preset-env": "^7.29.0",
+		"@babel/preset-typescript": "^7.28.5",
+		"@types/base-64": "^1.0.2",
+		"@types/jest": "^30.0.0",
+		"@types/node": "^25.2.2",
+		"@types/react": "^19.2.14",
+		"@types/validator": "^13.15.10",
+		"base-64": "^1.0.0",
+		"esbuild": "^0.27.3",
+		"jest": "^30.2.0",
+		"typescript": "5.8.3"
+	},
+	"dependencies": {
+		"base-64": "^1.0.0",
+		"cheerio": "^1.2.0",
+		"http-proxy-agent": "^7.0.2",
+		"https-proxy-agent": "^7.0.6",
+		"impit": "^0.10.1",
+		"iso-639-1": "^3.1.5",
+		"node-fetch": "^3.3.2",
+		"p-limit": "^7.3.0",
+		"parse-duration": "^2.1.5",
+		"socks-proxy-agent": "^8.0.5",
+		"tldts": "^7.0.24",
+		"validator": "^13.15.26"
+	},
+	"optionalDependencies": {
+		"puppeteer-real-browser": "^1.4.4"
+	},
+	"peerDependencies": {
+		"puppeteer-real-browser": "^1.4.4",
+		"react": ">=17.0.0"
+	},
+	"peerDependenciesMeta": {
+		"puppeteer-real-browser": {
+			"optional": true
+		},
+		"react": {
+			"optional": true
+		}
+	}
+}
