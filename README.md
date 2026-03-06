@@ -995,6 +995,6 @@ npx jest --coverage
 
 <div align="center">
 
-**ISC** © grabit-engine contributors
+**ISC** © grabit-engine
 
 </div>
