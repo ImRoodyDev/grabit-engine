@@ -1,5 +1,6 @@
 ﻿<div align="center">
 
+<img src="https://raw.githubusercontent.com/ImRoodyDev/grabit-engine/refs/heads/beta-v1/grabit.svg" width="120" alt="Grabit Engine" />
 <h1>Grabit Engine</h1>
 
 <img src="https://img.shields.io/badge/version-1.0.0-blue?style=flat" alt="Version" />
