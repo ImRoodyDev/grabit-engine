@@ -1,8 +1,9 @@
 /**
- * Represents the result of fetching subtitle streams, including the stream itself and the online providers that offer it.
- * - `stream`: The subtitle stream, which can be of various formats (e.g., srt, vtt) or null if not available.
- * - `onlineProviders`: An array of online providers that offer the subtitle stream, each with its provider name, language, and format.
- * 	*/
+ * This module defines TypeScript types for media sources and subtitle sources, including their properties and CORS policy details.
+ * The `MediaSource` type represents a media source with its file name, playlist information, and CORS policy details, while the `SubtitleSource` type represents a subtitle source with its file name, available languages, and CORS policy details.
+ * The `SourceProvider` interface defines the structure for both media and subtitle providers, including the scheme, provider name, language, format, and CORS policy details.
+ * The `InternalMediaSource` and `InternalSubtitleSource` types are derived from the `MediaSource` and `SubtitleSource` types, respectively, with certain properties omitted or made optional for internal use.
+ */
 export interface SourceProvider<T = string> {
 	scheme: string;
 	providerName: string;
