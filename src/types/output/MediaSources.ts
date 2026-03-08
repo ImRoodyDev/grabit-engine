@@ -9,6 +9,7 @@ export interface SourceProvider<T = string> {
 	providerName: string;
 	language: string;
 	format: T;
+	fileName: string;
 	xhr: {
 		haveCorsPolicy: boolean;
 		headers: Record<string, string>;
@@ -24,7 +25,6 @@ export interface SourceProvider<T = string> {
  * The `MediaStreamResult` type combines the media stream and its online providers, while the `SourceProvider` interface defines the structure for both media and subtitle providers.
  */
 export type MediaSource = SourceProvider<"m3u8" | "dash" | "mp4" | "webm" | "mkv" | "flv" | "avi" | "mov"> & {
-	fileName: string;
 	playlist:
 		| {
 				bandwidth: number;
@@ -43,9 +43,7 @@ export type MediaSource = SourceProvider<"m3u8" | "dash" | "mp4" | "webm" | "mkv
  * The `format` property in the `SourceProvider` interface can be one of several media formats, such as 'm3u8', 'dash', 'mp4', 'webm', 'mkv', 'flv', 'avi', 'mov' for media sources, and 'srt', 'vtt' for subtitle sources.
  * The `MediaStreamResult` type combines the media stream and its online providers, while the `SourceProvider` interface defines the structure for both media and subtitle providers.
  */
-export type SubtitleSource = Omit<SourceProvider<"srt" | "vtt">, "language"> & {
-	fileName: string;
-	language: string;
+export type SubtitleSource = SourceProvider<"srt" | "vtt"> & {
 	languageName: string;
 	url: string;
 };
