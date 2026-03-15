@@ -1,7 +1,34 @@
 {
 	"name": "grabit-engine",
-	"version": "1.0.0",
+	"version": "1.0.2",
 	"description": "A plugin-based engine for scraping media streams and subtitles. Works in Node.js, browsers, React and React Native. Load plugins from GitHub, local files, or code — with caching, health tracking, and auto-updates built in.",
+	"author": "imroodydev",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/ImRoodyDev/grabit-engine.git"
+	},
+	"homepage": "https://github.com/ImRoodyDev/grabit-engine#readme",
+	"bugs": {
+		"url": "https://github.com/ImRoodyDev/grabit-engine/issues"
+	},
+	"license": "ISC",
+	"keywords": [
+		"scraper",
+		"stream",
+		"media",
+		"plugin",
+		"provider",
+		"engine",
+		"subtitles",
+		"streaming",
+		"react-native",
+		"tmdb",
+		"cheerio",
+		"puppeteer",
+		"proxy",
+		"cloudflare-bypass",
+		"impit"
+	],
 	"source": "./src/index.ts",
 	"main": "./dist/src/index.js",
 	"module": "./dist/src/index.js",
@@ -18,6 +45,7 @@
 		"dist/src",
 		"src",
 		"scripts",
+		"CHANGELOG.md",
 		"README.md",
 		"BUNDLING.md",
 		"API_REFERENCE.md",
@@ -37,27 +65,9 @@
 		"create-provider": "node scripts/create-provider.js",
 		"bundle": "node scripts/bundle-provider.js",
 		"bundle:clean": "node scripts/bundle-provider.js --clean",
-		"test-provider": "node scripts/test-provider.js"
+		"test-provider": "node scripts/test-provider.js",
+		"publish:npm": "npx -p dotenv-cli dotenv -e .env -- npm publish"
 	},
-	"keywords": [
-		"scraper",
-		"stream",
-		"media",
-		"plugin",
-		"provider",
-		"engine",
-		"subtitles",
-		"streaming",
-		"react-native",
-		"tmdb",
-		"cheerio",
-		"puppeteer",
-		"proxy",
-		"cloudflare-bypass",
-		"impit"
-	],
-	"author": "",
-	"license": "ISC",
 	"devDependencies": {
 		"@babel/preset-env": "^7.29.0",
 		"@babel/preset-typescript": "^7.28.5",
