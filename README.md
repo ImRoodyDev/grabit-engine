@@ -3,7 +3,8 @@
 <img src="https://raw.githubusercontent.com/ImRoodyDev/grabit-engine/refs/heads/beta-v1/grabit.svg" width="120" alt="Grabit Engine" />
 <h1>Grabit Engine</h1>
 
-<img src="https://img.shields.io/badge/version-1.0.0-blue?style=flat" alt="Version" />
+<a href="https://www.npmjs.com/package/grabit-engine"><img src="https://img.shields.io/npm/v/grabit-engine?style=flat&logo=npm" alt="npm version" /></a>
+
 <img src="https://img.shields.io/badge/license-ISC-green?style=flat" alt="License" />
 <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen?style=flat&logo=node.js" alt="Node.js" />
 <img src="https://img.shields.io/badge/typescript-%5E5.0-blue?style=flat&logo=typescript" alt="TypeScript" />
