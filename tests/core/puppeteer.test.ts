@@ -37,9 +37,6 @@ function createRequest(overrides: Record<string, unknown> = {}) {
 			media: { type: "movie", tmdbId: "27205" },
 			targetLanguageISO: "en",
 			...overrides
-		},
-		browsingOptions: {
-			closeOnComplete: false
 		}
 	} as any;
 }
@@ -103,23 +100,5 @@ describe("puppeteer pool", () => {
 		expect(firstBrowser.close).toHaveBeenCalledTimes(1);
 
 		await second.browser.close();
-	});
-
-	it("treats closeOnComplete as tab release when using the pool", async () => {
-		const page = createMockPage();
-		const browser = createMockBrowser();
-		mockConnect.mockResolvedValue({ browser, page });
-
-		configurePuppeteerPool({ maxConcurrentBrowsers: 1, minWarmBrowsers: 1, idleBrowserTTL: 60_000 });
-
-		await puppeteerLoad(new URL("https://example.com/auto-close"), {
-			...createRequest(),
-			browsingOptions: {
-				closeOnComplete: true
-			}
-		});
-
-		expect(page.close).toHaveBeenCalledTimes(1);
-		expect(browser.close).not.toHaveBeenCalled();
 	});
 });

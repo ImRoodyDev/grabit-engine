@@ -95,8 +95,9 @@ The configuration object passed to `ScrapePluginManager.create(config)`.
 | `scrapeConfig.puppeteer.maxConcurrentBrowsers`   | `number`         | ❌       | `2`         | Global cap for real Puppeteer browser processes. Matching requests reuse an existing browser as a new tab when possible.                                                       |
 | `scrapeConfig.puppeteer.minWarmBrowsers`         | `number`         | ❌       | `0`         | Minimum number of idle browsers to keep warm for each browser configuration signature that has already been used.                                                              |
 | `scrapeConfig.puppeteer.idleBrowserTTL`          | `number`         | ❌       | `60_000`    | How long an idle pooled browser stays alive before it is closed, unless it is still required by `minWarmBrowsers`.                                                             |
+| `scrapeConfig.puppeteer.maxBrowserSessionTTL`    | `number`         | ❌       | `600_000`   | Maximum time (ms) a single page lease may stay open before it is auto-released and a warning is logged. Guards against providers that forget to call `browser.close()`.        |
 
-`ctx.puppeteer.launch(...)` leases a tab from a manager-owned browser pool. Calling the returned `browser.close()` or setting `closeOnComplete: true` releases that leased tab. Call `manager.destroy()` to close the underlying browser processes.
+`ctx.puppeteer.launch(...)` leases a tab from a manager-owned browser pool. Calling the returned `browser.close()` releases that leased tab. Call `manager.destroy()` to close the underlying browser processes.
 
 ### `ProviderSource`
 
@@ -319,13 +320,12 @@ The context object passed as the second argument to every `getStreams` / `getSub
 
 Request shape accepted by `ctx.puppeteer.launch(url, request)`.
 
-| Field                             | Type                                                                             | Required | Default              | Description                                                                                                                                                                      |
-| --------------------------------- | -------------------------------------------------------------------------------- | -------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `requester`                       | `ScrapeRequester`                                                                | ✅       | —                    | The active scrape requester. Its proxy and user-agent settings are forwarded into the browser session.                                                                           |
-| `browsingOptions.loadCriteria`    | `"domcontentloaded" \| "load" \| "networkidle0" \| "networkidle2" \| Array<...>` | ❌       | `"domcontentloaded"` | Puppeteer wait condition passed to `page.goto(...)`.                                                                                                                             |
-| `browsingOptions.closeOnComplete` | `boolean`                                                                        | ❌       | `true`               | Whether the acquired Puppeteer session is released automatically before the launch call resolves. In pooled mode this closes the leased tab, not the underlying browser process. |
-| `browsingOptions.extraHeaders`    | `Record<string, string>`                                                         | ❌       | —                    | Extra request headers to attach before navigation.                                                                                                                               |
-| `browsingOptions.ignoreError`     | `boolean`                                                                        | ❌       | `false`              | Skip the default navigation error thrown when `page.goto(...)` returns a non-OK response or no response object.                                                                  |
+| Field                          | Type                                                                             | Required | Default              | Description                                                                                                     |
+| ------------------------------ | -------------------------------------------------------------------------------- | -------- | -------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `requester`                    | `ScrapeRequester`                                                                | ✅       | —                    | The active scrape requester. Its proxy and user-agent settings are forwarded into the browser session.          |
+| `browsingOptions.loadCriteria` | `"domcontentloaded" \| "load" \| "networkidle0" \| "networkidle2" \| Array<...>` | ❌       | `"domcontentloaded"` | Puppeteer wait condition passed to `page.goto(...)`.                                                            |
+| `browsingOptions.extraHeaders` | `Record<string, string>`                                                         | ❌       | —                    | Extra request headers to attach before navigation.                                                              |
+| `browsingOptions.ignoreError`  | `boolean`                                                                        | ❌       | `false`              | Skip the default navigation error thrown when `page.goto(...)` returns a non-OK response or no response object. |
 
 `browsingOptions` also accepts the supported `puppeteer-real-browser` connect options, except `headless`, `proxy`, and `args`, which are managed by the engine.
 

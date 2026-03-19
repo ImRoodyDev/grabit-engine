@@ -79,8 +79,9 @@ function createModuleWorkers(provider: Provider, manifest: ProviderModuleManifes
 								scheme: provider.config.scheme
 							};
 						});
-						if (!shouldValidate) return withMeta;
-						return validateMediaSources(withMeta, requester, context);
+						const sorted = sortByTargetLanguage(withMeta, requester.targetLanguageISO);
+						if (!shouldValidate) return sorted;
+						return validateMediaSources(sorted, requester, context);
 					} catch (error) {
 						const logEntry = describeProviderWorkerError("getStreams", manifest, error);
 						context.log.error(logEntry.summary);
@@ -108,8 +109,9 @@ function createModuleWorkers(provider: Provider, manifest: ProviderModuleManifes
 							providerName: manifest.name,
 							scheme: provider.config.scheme
 						}));
-						if (!shouldValidate) return withMeta;
-						return validateSubtitleSources(withMeta, requester, context);
+						const sorted = sortByTargetLanguage(withMeta, requester.targetLanguageISO);
+						if (!shouldValidate) return sorted;
+						return validateSubtitleSources(sorted, requester, context);
 					} catch (error) {
 						const logEntry = describeProviderWorkerError("getSubtitles", manifest, error);
 						context.log.error(logEntry.summary);
@@ -121,6 +123,17 @@ function createModuleWorkers(provider: Provider, manifest: ProviderModuleManifes
 				}
 			: undefined
 	};
+}
+
+/** Stable sort that puts sources matching the target language first, preserving original order within each group. */
+function sortByTargetLanguage<T extends { language: string }>(sources: T[], targetLanguageISO: string): T[] {
+	const matches: T[] = [];
+	const rest: T[] = [];
+	for (const source of sources) {
+		if (source.language === targetLanguageISO) matches.push(source);
+		else rest.push(source);
+	}
+	return [...matches, ...rest];
 }
 
 /**
@@ -136,16 +149,7 @@ async function validateMediaSources(sources: MediaSource[], requester: ScrapeReq
 			return ok ? source : null;
 		})
 	);
-	return (
-		results
-			.filter((s): s is MediaSource => s !== null)
-			// Sort entries to prioritize those matching the requester's target language
-			.sort((a, b) => {
-				const aMatch = a.language === requester.targetLanguageISO ? 0 : 1;
-				const bMatch = b.language === requester.targetLanguageISO ? 0 : 1;
-				return aMatch - bMatch;
-			})
-	);
+	return results.filter((s): s is MediaSource => s !== null);
 }
 
 /**
@@ -160,14 +164,5 @@ async function validateSubtitleSources(sources: SubtitleSource[], requester: Scr
 			return ok ? source : null;
 		})
 	);
-	return (
-		results
-			.filter((s): s is SubtitleSource => s !== null)
-			// Sort entries to prioritize those matching the requester's target language
-			.sort((a, b) => {
-				const aMatch = a.language === requester.targetLanguageISO ? 0 : 1;
-				const bMatch = b.language === requester.targetLanguageISO ? 0 : 1;
-				return aMatch - bMatch;
-			})
-	);
+	return results.filter((s): s is SubtitleSource => s !== null);
 }

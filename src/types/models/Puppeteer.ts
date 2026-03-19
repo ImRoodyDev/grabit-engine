@@ -28,6 +28,15 @@ export type PuppeteerPoolConfig = {
 	 * @defaultValue `60000`
 	 */
 	idleBrowserTTL?: number;
+
+	/**
+	 * Maximum time (in milliseconds) a single page lease may stay open before it is
+	 * automatically released and a warning is logged. Guards against providers that
+	 * forget to call `browser.close()`.
+	 *
+	 * @defaultValue `600_000` (10 minutes)
+	 */
+	maxBrowserSessionTTL?: number;
 };
 
 export type PuppeteerLoadRequest = {
@@ -44,12 +53,6 @@ export type PuppeteerLoadRequest = {
 		 * @defaultValue `'domcontentloaded'`
 		 */
 		loadCriteria?: PuppeteerLifeCycleEvent | PuppeteerLifeCycleEvent[];
-
-		/** Whether to close the acquired Puppeteer session after loading the page.
-		 * In pooled mode this releases the leased tab and may keep the underlying browser process warm for reuse.
-		 * @defaultValue `true`
-		 */
-		closeOnComplete?: boolean;
 
 		/** Extra headers to set on the page */
 		extraHeaders?: { [key: string]: string };

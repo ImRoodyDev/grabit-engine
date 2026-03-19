@@ -381,14 +381,21 @@ If your provider needs a rendered page, use `ctx.puppeteer.launch()` instead. Se
 const { page, browser } = await ctx.puppeteer.launch(url, {
 	requester,
 	browsingOptions: {
-		closeOnComplete: false,
 		ignoreError: true
 	}
 });
 
-const html = await page.content();
-await browser.close();
+try {
+	const html = await page.content();
+	// ... scrape the page
+} finally {
+	await browser.close(); // releases the tab back to the pool
+}
 ```
+
+> **Important:** `browser.close()` does **not** kill the browser process — the pool intercepts the call and only releases your tab. The underlying browser stays warm for reuse by the next request. Always call `browser.close()` in a `finally` block to avoid leaking tabs.
+>
+> If a provider forgets to call `browser.close()`, the pool will automatically release the tab after `maxBrowserSessionTTL` (default 10 minutes) and log a warning that always prints regardless of debug mode.
 
 ### `subtitle.ts` — Subtitle Handler
 
@@ -801,10 +808,16 @@ When a provider uses Puppeteer, `test-provider` disables headless mode automatic
 <td><code>60000</code></td>
 <td>How long an idle pooled browser stays alive before it is closed, unless it is still needed to satisfy <code>minWarmBrowsers</code>.</td>
 </tr>
+<tr>
+<td><code>scrapeConfig.puppeteer.maxBrowserSessionTTL</code></td>
+<td><code>number</code></td>
+<td><code>600000</code></td>
+<td>Maximum time a single page lease may stay open before it is automatically released and a warning is logged. Guards against providers that forget to call <code>browser.close()</code>.</td>
+</tr>
 </tbody>
 </table>
 
-When a provider calls <code>ctx.puppeteer.launch(...)</code>, the manager now leases a tab from a shared browser pool. Calling the returned <code>browser.close()</code> or setting <code>closeOnComplete: true</code> releases that tab back to the pool; calling <code>manager.destroy()</code> closes the real browser processes.
+When a provider calls <code>ctx.puppeteer.launch(...)</code>, the manager now leases a tab from a shared browser pool. Calling the returned <code>browser.close()</code> releases that tab back to the pool; calling <code>manager.destroy()</code> closes the real browser processes. If a provider forgets to release its tab, the pool will auto-release it after <code>maxBrowserSessionTTL</code> (default 10 minutes) and log a warning.
 
 By default, <code>successQuorum</code> resolves immediately once enough providers return results. Enable <code>waitForActiveProvidersAfterQuorum</code> if you want the manager to keep waiting for providers that were already running when quorum was reached, while still cancelling anything that had not started yet.
 

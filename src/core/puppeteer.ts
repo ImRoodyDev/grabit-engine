@@ -13,7 +13,8 @@ const CLOUDFLARE_DETECTION = /Attention Required|Just a moment|Cloudflare/i;
 const DEFAULT_POOL_CONFIG: Required<PuppeteerPoolConfig> = {
 	maxConcurrentBrowsers: 2,
 	minWarmBrowsers: 0,
-	idleBrowserTTL: 60_000
+	idleBrowserTTL: 60_000,
+	maxBrowserSessionTTL: 600_000
 };
 
 type BrowserPoolEntry = {
@@ -58,7 +59,7 @@ export async function puppeteerLoad(url: URL, request: PuppeteerLoadRequest): Pr
 
 	// Destructure request parameters with defaults
 	const { requester, browsingOptions: browserOptions } = request;
-	const { loadCriteria = "domcontentloaded", extraHeaders, closeOnComplete = true, ignoreError = false, ...puppeteerOptions } = browserOptions || {};
+	const { loadCriteria = "domcontentloaded", extraHeaders, ignoreError = false, ...puppeteerOptions } = browserOptions || {};
 	const connectOptions: BrowserConnectOptions = {
 		args: [],
 		customConfig: {},
@@ -74,7 +75,7 @@ export async function puppeteerLoad(url: URL, request: PuppeteerLoadRequest): Pr
 		},
 		...puppeteerOptions
 	};
-	const { browser, page, release } = await acquireBrowserLease(connectOptions);
+	const { browser, page, release } = await acquireBrowserSession(connectOptions);
 
 	try {
 		// Set extra headers/agent if provided
@@ -110,9 +111,6 @@ export async function puppeteerLoad(url: URL, request: PuppeteerLoadRequest): Pr
 		// Note: This is done after navigation to ensure the page loads fully before blocking resources
 		// Sometimes cloudflare challenges may require loading certain resources, so we wait until after navigation to enable optimizations
 		await enablePageOptimizations(page);
-
-		// Close the browser on complete if specified
-		if (closeOnComplete) await release();
 
 		return { page, browser };
 	} catch (error) {
@@ -228,7 +226,7 @@ async function getPuppeteerModule(): Promise<typeof import("puppeteer-real-brows
 }
 
 /** Acquires a tab lease from a matching pooled browser or waits until capacity becomes available. */
-async function acquireBrowserLease(connectOptions: BrowserConnectOptions): Promise<BrowserLease> {
+async function acquireBrowserSession(connectOptions: BrowserConnectOptions): Promise<BrowserLease> {
 	const key = stableStringify(connectOptions);
 
 	while (true) {
@@ -288,7 +286,7 @@ async function createPageLease(entry: BrowserPoolEntry): Promise<BrowserLease> {
 
 	const release = createLeaseRelease(entry, page);
 	// Providers receive a browser-like handle whose close/disconnect only releases their lease.
-	const browserHandle = createLeasedBrowserHandle(entry.browser, release);
+	const browserHandle = createProxyBrowserHandle(entry.browser, release);
 	return { browser: browserHandle, page, release };
 }
 
@@ -296,9 +294,24 @@ async function createPageLease(entry: BrowserPoolEntry): Promise<BrowserLease> {
 function createLeaseRelease(entry: BrowserPoolEntry, page: PageWithCursor): () => Promise<void> {
 	let released = false;
 
-	return async () => {
+	// Safety net: auto-release if the provider never calls browser.close()
+	let leaseTimer: ReturnType<typeof setTimeout> | undefined;
+	if (browserPoolConfig.maxBrowserSessionTTL > 0) {
+		leaseTimer = setTimeout(() => {
+			if (released) return;
+			Logger.alwaysWarn(
+				`Puppeteer lease on browser #${entry.id} was not released within ${browserPoolConfig.maxBrowserSessionTTL}ms — auto-releasing. ` +
+					`Make sure your provider calls browser.close() when finished.`
+			);
+			void release();
+		}, browserPoolConfig.maxBrowserSessionTTL);
+		if (typeof leaseTimer === "object" && "unref" in leaseTimer) leaseTimer.unref();
+	}
+
+	const release = async () => {
 		if (released) return;
 		released = true;
+		if (leaseTimer) clearTimeout(leaseTimer);
 
 		try {
 			if (!(typeof page.isClosed === "function" && page.isClosed())) await page.close();
@@ -309,6 +322,8 @@ function createLeaseRelease(entry: BrowserPoolEntry, page: PageWithCursor): () =
 			handleReleasedBrowser(entry);
 		}
 	};
+
+	return release;
 }
 
 /** Decides whether a released browser stays warm, closes immediately, or wakes waiting callers. */
@@ -354,7 +369,7 @@ function handleReleasedBrowser(entry: BrowserPoolEntry): void {
 }
 
 /** Proxies browser shutdown APIs so providers release only their own lease. */
-function createLeasedBrowserHandle(browser: PuppeteerLoadResult["browser"], release: () => Promise<void>): PuppeteerLoadResult["browser"] {
+function createProxyBrowserHandle(browser: PuppeteerLoadResult["browser"], release: () => Promise<void>): PuppeteerLoadResult["browser"] {
 	return new Proxy(browser, {
 		get(target, property, receiver) {
 			// Closing the provider-facing handle returns the tab to the pool instead of killing the shared browser.
@@ -372,11 +387,13 @@ function sanitizePoolConfig(config?: PuppeteerPoolConfig): Required<PuppeteerPoo
 	const maxConcurrentBrowsers = Math.max(1, Math.trunc(config?.maxConcurrentBrowsers ?? DEFAULT_POOL_CONFIG.maxConcurrentBrowsers));
 	const minWarmBrowsers = Math.max(0, Math.min(maxConcurrentBrowsers, Math.trunc(config?.minWarmBrowsers ?? DEFAULT_POOL_CONFIG.minWarmBrowsers)));
 	const idleBrowserTTL = Math.max(0, Math.trunc(config?.idleBrowserTTL ?? DEFAULT_POOL_CONFIG.idleBrowserTTL));
+	const maxBrowserSessionTTL = Math.max(0, Math.trunc(config?.maxBrowserSessionTTL ?? DEFAULT_POOL_CONFIG.maxBrowserSessionTTL));
 
 	return {
 		maxConcurrentBrowsers,
 		minWarmBrowsers,
-		idleBrowserTTL
+		idleBrowserTTL,
+		maxBrowserSessionTTL
 	};
 }
 
