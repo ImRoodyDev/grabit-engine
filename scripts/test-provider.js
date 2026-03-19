@@ -53,7 +53,7 @@
  *   --user-agent <string>          Custom user agent string
  *   --src <path>                   Providers directory (default: ./providers)
  *   --manifest-dir <path>          Directory containing manifest.json (default: project root, then --src)
- *   --timeout <ms>                 Scrape timeout in ms (default: 30000)
+ *   --timeout <ms>                 Scrape timeout in ms (default: 90000)
  *   --raw                          Print raw JSON output alongside the formatted report
  *   --no-bundle                    Skip auto-bundling; requires a pre-bundled index.js
  *
@@ -143,7 +143,7 @@ function parseArgs() {
 		userAgent: null,
 		src: null,
 		manifestDir: null,
-		timeout: 30000,
+		timeout: 90000,
 		raw: false,
 		noBundle: false
 	};
@@ -217,7 +217,7 @@ ${bold("OPTIONS")}
   --user-agent <string>            Custom user agent
   --src <path>                     Providers directory (default: ./providers)
   --manifest-dir <path>            Directory of manifest.json (default: project root, then --src)
-  --timeout <ms>                   Timeout in ms (default: 30000)
+	--timeout <ms>                   Timeout in ms (default: 90000)
   --raw                            Also print raw JSON output
   --no-bundle                      Require pre-bundled index.js, skip auto-bundling
   --help, -h                       Show this help
@@ -499,6 +499,7 @@ async function loadContext(scheme) {
 		import(pathToFileURL(path.join(distCore, "puppeteer.js")).href),
 		import(pathToFileURL(path.join(PKG_ROOT, "dist", "esm", "src", "utils", "logger.js")).href)
 	]);
+	if (typeof puppeteerMod.disableHeadlessMode === "function") puppeteerMod.disableHeadlessMode(true);
 
 	// Logger is always in debug mode for the test script
 	const { DebugLogger } = loggerMod;

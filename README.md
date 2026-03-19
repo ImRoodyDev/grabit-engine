@@ -374,6 +374,21 @@ export async function getStreams(requester: ScrapeRequester, ctx: ProviderContex
 }
 ```
 
+If your provider needs a rendered page, use `ctx.puppeteer.launch()` instead. Set `browsingOptions.ignoreError` when the page can still be scraped even if `page.goto(...)` returns a non-OK response or no response object:
+
+```typescript
+const { page, browser } = await ctx.puppeteer.launch(url, {
+	requester,
+	browsingOptions: {
+		closeOnComplete: false,
+		ignoreError: true
+	}
+});
+
+const html = await page.content();
+await browser.close();
+```
+
 ### `subtitle.ts` — Subtitle Handler
 
 ```typescript
@@ -619,6 +634,8 @@ npx test-provider --scheme my-provider --media-file ./test-media.json
 ```
 
 The tool auto-bundles TypeScript source via esbuild if no pre-built `index.js` is present, fetches missing media data from TMDB automatically, runs the scrape with a configurable timeout, and prints a formatted report with a `PASS / EMPTY / FAIL` verdict.
+
+When a provider uses Puppeteer, `test-provider` disables headless mode automatically so you can inspect the live browser session while debugging.
 
 > See [`/TESTING.md`](/TESTING.md) for the full guide — all flags, output format, media file examples, and tips.
 

@@ -23,7 +23,7 @@ export async function puppeteerLoad(url: URL, request: PuppeteerLoadRequest): Pr
 
 	// Destructure request parameters with defaults
 	const { requester, browsingOptions: browserOptions } = request;
-	const { loadCriteria = "domcontentloaded", extraHeaders, closeOnComplete = true, ...puppeteerOptions } = browserOptions || {};
+	const { loadCriteria = "domcontentloaded", extraHeaders, closeOnComplete = true, ignoreError = false, ...puppeteerOptions } = browserOptions || {};
 	let browser: PuppeteerLoadResult["browser"];
 
 	try {
@@ -31,7 +31,7 @@ export async function puppeteerLoad(url: URL, request: PuppeteerLoadRequest): Pr
 		const { browser: connectedBrowser, page } = await connectToBrowser({
 			args: [],
 			customConfig: {},
-			turnstile: false,
+			turnstile: true,
 			connectOption: {},
 			disableXvfb: false,
 			ignoreAllFlags: false,
@@ -51,7 +51,7 @@ export async function puppeteerLoad(url: URL, request: PuppeteerLoadRequest): Pr
 
 		// Navigate and wait for initial load
 		const navigatedResponse = await page.goto(url.href, { waitUntil: loadCriteria });
-		if (!navigatedResponse?.ok())
+		if (!ignoreError && !navigatedResponse?.ok())
 			throw new ProcessError({
 				code: "PuppeteerNavigationError",
 				status: 500,
@@ -59,9 +59,14 @@ export async function puppeteerLoad(url: URL, request: PuppeteerLoadRequest): Pr
 			});
 
 		// Check if Cloudflare challenge exists
-		const hasChallengeDetected = await page.evaluate(() => {
-			return !!document.querySelector("'.cf-turnstile'") || CLOUDFLARE_DETECTION.test(document.title);
-		});
+		const hasChallengeDetected = await page.evaluate(
+			(cloudflarePatternSource, cloudflarePatternFlags) => {
+				const cloudflarePattern = new RegExp(cloudflarePatternSource, cloudflarePatternFlags);
+				return !!document.querySelector(".cf-turnstile") || !!document.querySelector(".challenge-error-text") || cloudflarePattern.test(document.title);
+			},
+			CLOUDFLARE_DETECTION.source,
+			CLOUDFLARE_DETECTION.flags
+		);
 
 		// Log navigation result and challenge detection
 		Logger.debug(`Puppeteer navigation to ${url.href} completed. Cloudflare challenge detected: ${hasChallengeDetected}`);

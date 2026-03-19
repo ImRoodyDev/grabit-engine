@@ -230,7 +230,7 @@ The tool prints a structured report broken into sections:
   getStreams:   ✔ yes
   getSubtitles: — no
 
-► Scraping  (mode: streams, timeout: 30000ms)
+► Scraping  (mode: streams, timeout: 90000ms)
 ────────────────────────────────────────────────────────────
 ℹ Running scrape...
 
@@ -289,7 +289,7 @@ The process exits with code `0` on PASS/EMPTY and `1` on FAIL.
 | `--user-agent <string>`             | —             | Custom user agent string                                                   |
 | `--src <path>`                      | `./providers` | Providers directory                                                        |
 | `--manifest-dir <path>`             | —             | Directory containing `manifest.json` (default: project root, then `--src`) |
-| `--timeout <ms>`                    | `30000`       | Scrape timeout in milliseconds                                             |
+| `--timeout <ms>`                    | `90000`       | Scrape timeout in milliseconds                                             |
 | `--raw`                             | `false`       | Also print raw JSON output                                                 |
 | `--no-bundle`                       | `false`       | Require pre-bundled `index.js`, skip auto-bundling                         |
 | `--help`, `-h`                      | —             | Show help                                                                  |

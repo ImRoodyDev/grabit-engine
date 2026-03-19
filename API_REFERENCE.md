@@ -19,6 +19,7 @@
 - [ProviderMetrics](#providermetrics)
 - [ProviderHealthReport](#providerhealthreport)
 - [ProviderContext](#providercontext)
+- [PuppeteerLoadRequest](#puppeteerloadrequest)
 - [ProviderFetchOptions](#providerfetchoptions)
 - [Media Input Types](#media-input-types)
   - [IBaseMedia](#ibasemedia)
@@ -294,17 +295,35 @@ A detailed health snapshot returned by `getMetricsReport()`.
 
 The context object passed as the second argument to every `getStreams` / `getSubtitles` handler.
 
-| Property              | Type                                                   | Required | Description                                                                                                                                                                                                |
-| --------------------- | ------------------------------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `xhr.fetch`           | `(url, options, requester) => Promise<Response>`       | ✅       | Makes an HTTP request, automatically applying the requester's user-agent and proxy. Supports timeout and retry options.                                                                                    |
-| `xhr.fetchResponse`   | `(url, options, requester) => Promise<T>`              | ✅       | Like `fetch` but parses and returns the typed response body directly.                                                                                                                                      |
-| `xhr.handleResponse`  | `(response) => Promise<T>`                             | ✅       | Parses a raw `Response` object into a typed value, throwing on error status codes.                                                                                                                         |
-| `xhr.status`          | `(url, options, requester) => Promise<{ ok, status }>` | ✅       | Lightweight check — returns whether the request succeeded and its HTTP status code.                                                                                                                        |
-| `cheerio.$load`       | `(html: string) => CheerioAPI`                         | ✅       | Direct access to `cheerio.load` for parsing raw HTML strings you already have, without making an HTTP request.                                                                                             |
-| `cheerio.load`        | `(url, requester, xhrCtx) => Promise<{ $, response }>` | ✅       | Fetches a page and loads it into Cheerio for DOM traversal. Mimics a real browser request with appropriate headers.                                                                                        |
-| `cheerio.sortResults` | `($page, selectors, requester) => Promise<Result[]>`   | ✅       | Scores and sorts search result elements by similarity to the requester's media (title, year, duration). Score range: 0–170 for movies/series, 0–100 for channels.                                          |
-| `puppeteer.launch`    | `(url, request) => Promise<{ browser, page }>`         | ✅       | **Node.js only.** Launches a headless real browser via `puppeteer-real-browser`. Handles Cloudflare challenges automatically.                                                                              |
-| `log`                 | `DebugLogger`                                          | ✅       | Scoped debug logger bound to this provider's scheme. Provides `.info()`, `.warn()`, `.error()`, and `.debug()` methods. Output respects the manager's `debug` flag — always on in the `test-provider` CLI. |
+| Property              | Type                                                   | Required | Description                                                                                                                                                                                                                    |
+| --------------------- | ------------------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `xhr.fetch`           | `(url, options, requester) => Promise<Response>`       | ✅       | Makes an HTTP request, automatically applying the requester's user-agent and proxy. Supports timeout and retry options.                                                                                                        |
+| `xhr.fetchResponse`   | `(url, options, requester) => Promise<T>`              | ✅       | Like `fetch` but parses and returns the typed response body directly.                                                                                                                                                          |
+| `xhr.handleResponse`  | `(response) => Promise<T>`                             | ✅       | Parses a raw `Response` object into a typed value, throwing on error status codes.                                                                                                                                             |
+| `xhr.status`          | `(url, options, requester) => Promise<{ ok, status }>` | ✅       | Lightweight check — returns whether the request succeeded and its HTTP status code.                                                                                                                                            |
+| `cheerio.$load`       | `(html: string) => CheerioAPI`                         | ✅       | Direct access to `cheerio.load` for parsing raw HTML strings you already have, without making an HTTP request.                                                                                                                 |
+| `cheerio.load`        | `(url, requester, xhrCtx) => Promise<{ $, response }>` | ✅       | Fetches a page and loads it into Cheerio for DOM traversal. Mimics a real browser request with appropriate headers.                                                                                                            |
+| `cheerio.sortResults` | `($page, selectors, requester) => Promise<Result[]>`   | ✅       | Scores and sorts search result elements by similarity to the requester's media (title, year, duration). Score range: 0–170 for movies/series, 0–100 for channels.                                                              |
+| `puppeteer.launch`    | `(url, request) => Promise<{ browser, page }>`         | ✅       | **Node.js only.** Launches a real browser via `puppeteer-real-browser`. Handles Cloudflare challenges automatically. Use `browsingOptions.ignoreError` to continue when `page.goto(...)` returns a non-OK or missing response. |
+| `log`                 | `DebugLogger`                                          | ✅       | Scoped debug logger bound to this provider's scheme. Provides `.info()`, `.warn()`, `.error()`, and `.debug()` methods. Output respects the manager's `debug` flag — always on in the `test-provider` CLI.                     |
+
+---
+
+## `PuppeteerLoadRequest`
+
+Request shape accepted by `ctx.puppeteer.launch(url, request)`.
+
+| Field                             | Type                                                                             | Required | Default              | Description                                                                                                     |
+| --------------------------------- | -------------------------------------------------------------------------------- | -------- | -------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `requester`                       | `ScrapeRequester`                                                                | ✅       | —                    | The active scrape requester. Its proxy and user-agent settings are forwarded into the browser session.          |
+| `browsingOptions.loadCriteria`    | `"domcontentloaded" \| "load" \| "networkidle0" \| "networkidle2" \| Array<...>` | ❌       | `"domcontentloaded"` | Puppeteer wait condition passed to `page.goto(...)`.                                                            |
+| `browsingOptions.closeOnComplete` | `boolean`                                                                        | ❌       | `true`               | Whether the browser is closed automatically before the launch call resolves.                                    |
+| `browsingOptions.extraHeaders`    | `Record<string, string>`                                                         | ❌       | —                    | Extra request headers to attach before navigation.                                                              |
+| `browsingOptions.ignoreError`     | `boolean`                                                                        | ❌       | `false`              | Skip the default navigation error thrown when `page.goto(...)` returns a non-OK response or no response object. |
+
+`browsingOptions` also accepts the supported `puppeteer-real-browser` connect options, except `headless`, `proxy`, and `args`, which are managed by the engine.
+
+> **Note:** The `test-provider` CLI disables headless mode automatically for Puppeteer-based providers so you can inspect the browser during local debugging.
 
 ---
 
