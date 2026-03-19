@@ -185,6 +185,13 @@ const context: ProviderContext["puppeteer"] = {
 export function configurePuppeteerPool(config?: PuppeteerPoolConfig): void {
 	browserPoolConfig = sanitizePoolConfig(config);
 	trimIdleBrowsers();
+
+	if (browserPoolConfig.minWarmBrowsers > 0) {
+		Logger.debug(
+			`Puppeteer pool configured: minWarmBrowsers=${browserPoolConfig.minWarmBrowsers}. ` +
+				`Warm browsers are retained after first use — they are not pre-created at startup.`
+		);
+	}
 }
 
 /** Closes all pooled browsers and wakes any callers waiting for a browser slot. */
@@ -333,12 +340,37 @@ function createLeaseRelease(entry: BrowserPoolEntry, page: PageWithCursor): () =
 		released = true;
 		if (leaseTimer) clearTimeout(leaseTimer);
 
+		// Decrement first so the idle-count check below sees the true state.
+		entry.activeLeases = Math.max(0, entry.activeLeases - 1);
+
 		try {
-			if (!(typeof page.isClosed === "function" && page.isClosed())) await page.close();
-		} catch {
-			// Ignore release-time page errors; we still need to return the lease to the pool.
+			// If this browser should stay warm and this is its last active lease,
+			// open a fresh keeper page before closing the provider's page.
+			// This prevents Chrome from disconnecting when the last tab closes.
+			const keepWarm = !entry.closing && entry.activeLeases === 0 && getIdleBrowserCount(entry.key) <= browserPoolConfig.minWarmBrowsers;
+
+			if (keepWarm) {
+				try {
+					const freshPage = await entry.browser.newPage();
+					entry.initialPage = freshPage as PageWithCursor;
+				} catch {
+					// Browser is likely dead; fall through to close the source page.
+				}
+			}
+
+			try {
+				if (!(typeof page.isClosed === "function" && page.isClosed())) await page.close();
+			} catch {
+				// Ignore release-time page errors.
+			}
+
+			if (keepWarm && entry.initialPage) {
+				Logger.debug(
+					`Kept browser #${entry.id} warm with a fresh keeper page ` +
+						`(${getIdleBrowserCount(entry.key)}/${browserPoolConfig.minWarmBrowsers} warm browser(s))`
+				);
+			}
 		} finally {
-			entry.activeLeases = Math.max(0, entry.activeLeases - 1);
 			handleReleasedBrowser(entry);
 		}
 	};
@@ -360,6 +392,7 @@ function handleReleasedBrowser(entry: BrowserPoolEntry): void {
 
 	const warmIdleCount = getIdleBrowserCount(entry.key);
 	if (warmIdleCount <= browserPoolConfig.minWarmBrowsers) {
+		Logger.debug(`Browser #${entry.id} retained as warm idle (${warmIdleCount}/${browserPoolConfig.minWarmBrowsers} warm browser(s))`);
 		wakePendingWaiters();
 		return;
 	}

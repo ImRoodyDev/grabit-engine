@@ -101,4 +101,77 @@ describe("puppeteer pool", () => {
 
 		await second.browser.close();
 	});
+
+	it("keeps a browser warm when minWarmBrowsers >= 1 by opening a fresh keeper page on release", async () => {
+		const providerPage = createMockPage();
+		const keeperPage = createMockPage();
+		const nextPage = createMockPage();
+		const browser = createMockBrowser();
+
+		// First newPage call → keeper page created during release, second → next lease page
+		browser.newPage.mockResolvedValueOnce(keeperPage).mockResolvedValueOnce(nextPage);
+		mockConnect.mockResolvedValue({ browser, page: providerPage });
+
+		configurePuppeteerPool({ maxConcurrentBrowsers: 1, minWarmBrowsers: 1, idleBrowserTTL: 60_000 });
+
+		const first = await puppeteerLoad(new URL("https://example.com/one"), createRequest());
+		expect(mockConnect).toHaveBeenCalledTimes(1);
+
+		// Releasing should open a keeper page BEFORE closing the provider's page
+		await first.browser.close();
+
+		// Keeper page was opened to keep the browser alive
+		expect(browser.newPage).toHaveBeenCalledTimes(1);
+		// Provider page was still closed
+		expect(providerPage.close).toHaveBeenCalledTimes(1);
+		// The real browser was NOT closed (it's warm)
+		expect(browser.close).not.toHaveBeenCalled();
+
+		// Second request reuses the warm browser and gets the keeper page
+		const second = await puppeteerLoad(new URL("https://example.com/two"), createRequest());
+		expect(mockConnect).toHaveBeenCalledTimes(1);
+		// No extra newPage needed — the keeper page is reused as initialPage
+		expect(browser.newPage).toHaveBeenCalledTimes(1);
+
+		await second.browser.close();
+	});
+
+	it("does not open a keeper page when minWarmBrowsers is 0", async () => {
+		const page = createMockPage();
+		const browser = createMockBrowser();
+		mockConnect.mockResolvedValue({ browser, page });
+
+		configurePuppeteerPool({ maxConcurrentBrowsers: 1, minWarmBrowsers: 0, idleBrowserTTL: 60_000 });
+
+		const result = await puppeteerLoad(new URL("https://example.com"), createRequest());
+		await result.browser.close();
+
+		// No keeper page was requested — browser is not warm-retained
+		expect(browser.newPage).not.toHaveBeenCalled();
+		// Provider page was closed normally
+		expect(page.close).toHaveBeenCalledTimes(1);
+	});
+
+	it("evicts stale browsers and retries acquisition transparently", async () => {
+		const stalePage = createMockPage();
+		const staleBrowser = createMockBrowser();
+		staleBrowser.newPage.mockRejectedValue(new Error("Protocol error: Connection closed"));
+
+		const freshPage = createMockPage();
+		const freshBrowser = createMockBrowser();
+
+		mockConnect.mockResolvedValueOnce({ browser: staleBrowser, page: stalePage }).mockResolvedValueOnce({ browser: freshBrowser, page: freshPage });
+
+		configurePuppeteerPool({ maxConcurrentBrowsers: 2, minWarmBrowsers: 0, idleBrowserTTL: 60_000 });
+
+		// First request uses the first browser
+		const first = await puppeteerLoad(new URL("https://example.com/one"), createRequest());
+		await first.browser.close();
+
+		// Second request tries to reuse stale browser → newPage fails → retries with fresh browser
+		const second = await puppeteerLoad(new URL("https://example.com/two"), createRequest());
+		expect(mockConnect).toHaveBeenCalledTimes(2);
+
+		await second.browser.close();
+	});
 });
