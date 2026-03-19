@@ -11,6 +11,7 @@ The format is based on Keep a Changelog.
 - Fixed a race condition in `scrapeProviders` where the shared `requester` object (`media` and `targetLanguageISO`) was mutated inside the concurrent `fn` closure. Concurrent provider dispatches would stomp on each other's values mid-flight. Each invocation now receives its own `localRequester` shallow copy.
 - Fixed language-based media lookup in `scrapeProviders` using `requester.targetLanguageISO` as the cache key instead of the module's declared language. When a provider's primary language differs from the requester's, TMDB is now called with that provider's language so localized titles and metadata are correct for that provider.
 - Fixed nondeterministic `successQuorum` timing under scheduler load. Quorum-based operations now resolve immediately once enough providers return results and clear any queued work, instead of sometimes waiting for a slow provider that happened to start in the same concurrency window.
+- Fixed browser pool reuse crash ("Protocol error: Connection closed") when a provider releases the only open tab, causing Chrome to disconnect. The pool now listens for the browser `disconnected` event and proactively evicts dead entries. The reuse path in `acquireBrowserSession` also retries instead of propagating the error, so the next loop iteration spawns a fresh browser.
 
 ### Added
 

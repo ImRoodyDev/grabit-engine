@@ -232,7 +232,17 @@ async function acquireBrowserSession(connectOptions: BrowserConnectOptions): Pro
 	while (true) {
 		// Reuse a matching warm browser when possible to avoid spawning a new process.
 		const reusableEntry = getReusableBrowserEntry(key);
-		if (reusableEntry) return createPageLease(reusableEntry);
+		if (reusableEntry) {
+			try {
+				return await createPageLease(reusableEntry);
+			} catch {
+				// The stale browser was already removed from the pool by createPageLease's
+				// error handler, so the next iteration will either pick another entry
+				// or fall through to create a fresh browser.
+				Logger.debug(`Stale pooled browser #${reusableEntry.id} evicted — retrying browser acquisition`);
+				continue;
+			}
+		}
 
 		// No matching browser exists, so create one if the global process limit still allows it.
 		if (totalBrowserCount < browserPoolConfig.maxConcurrentBrowsers) {
@@ -257,6 +267,16 @@ async function createBrowserEntry(key: string, connectOptions: BrowserConnectOpt
 		activeLeases: 0,
 		closing: false
 	};
+
+	// Proactively evict the entry if the browser process exits or its WebSocket drops.
+	if (typeof browser.on === "function") {
+		browser.on("disconnected", () => {
+			if (!entry.closing) {
+				Logger.debug(`Pooled Puppeteer browser #${entry.id} disconnected unexpectedly — removing from pool`);
+				removeBrowserEntry(entry);
+			}
+		});
+	}
 
 	// Pool entries are grouped by launch signature so browsers with different proxy/options stay isolated.
 	const poolEntries = browserPool.get(key) ?? new Set<BrowserPoolEntry>();
