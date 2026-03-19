@@ -1,5 +1,6 @@
 import { ScrapeRequester } from "../input/Requester.ts";
 import { MediaSource, SubtitleSource } from "../output/MediaSources.ts";
+import type { PuppeteerPoolConfig } from "./Puppeteer.ts";
 import { ProviderModule, ProviderModuleManifest } from "./Modules.ts";
 
 /**
@@ -243,6 +244,17 @@ export type ProviderManagerConfig = {
 		 */
 		successQuorum?: number;
 		/**
+		 * When `successQuorum` is reached, wait for providers that are already running
+		 * in active concurrency slots to finish before resolving.
+		 *
+		 * Queued providers that have not started yet are still cancelled immediately.
+		 * Keep this disabled when lowest possible latency matters more than collecting
+		 * extra results from providers that were already in flight.
+		 *
+		 * @default false
+		 */
+		waitForActiveProvidersAfterQuorum?: boolean;
+		/**
 		 * Error rate threshold (0–1) used to automatically disable a provider module.
 		 *
 		 * Calculated as: `errors / (errors + successes)`.
@@ -269,6 +281,14 @@ export type ProviderManagerConfig = {
 		 * @default 10
 		 */
 		minOperationsForEvaluation?: number;
+
+		/**
+		 * Node.js-only browser pooling configuration used by `ctx.puppeteer.launch(...)`.
+		 *
+		 * Browser instances are reused as warm processes while individual requests lease tabs/pages.
+		 * This reduces browser startup churn and caps the number of real browser processes running at once.
+		 */
+		puppeteer?: PuppeteerPoolConfig;
 	};
 
 	tmdbApiKeys: string[];

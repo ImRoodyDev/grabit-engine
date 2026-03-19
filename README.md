@@ -55,6 +55,7 @@ Load provider plugins from **GitHub**, **local files**, or **directly in code** 
 - 📊 **Health tracking** — see how each provider is doing (errors, successes)
 - 🔴 **Auto-disable** — bad providers get turned off on their own
 - 🔄 **Auto-update** — remote providers refresh themselves on a timer
+- ♻️ **Warm Puppeteer pool** — reuse browser processes as tabs instead of spawning a browser for every request
 - 💾 **Built-in cache** — save results in memory so you don't repeat work
 - 🔁 **Retries** — automatically retry failed providers
 - ✅ **Validation** — checks that plugins are set up correctly before loading
@@ -765,6 +766,12 @@ When a provider uses Puppeteer, `test-provider` disables headless mode automatic
 <td>Stop once this many providers have succeeded.</td>
 </tr>
 <tr>
+<td><code>scrapeConfig.waitForActiveProvidersAfterQuorum</code></td>
+<td><code>boolean</code></td>
+<td><code>false</code></td>
+<td>After <code>successQuorum</code> is reached, wait for providers already running in active concurrency slots to finish before resolving. Queued providers are still cancelled immediately.</td>
+</tr>
+<tr>
 <td><code>scrapeConfig.errorThresholdRate</code></td>
 <td><code>number</code></td>
 <td><code>0.7</code></td>
@@ -776,8 +783,30 @@ When a provider uses Puppeteer, `test-provider` disables headless mode automatic
 <td><code>10</code></td>
 <td>How many scrapes before checking if a provider is healthy.</td>
 </tr>
+<tr>
+<td><code>scrapeConfig.puppeteer.maxConcurrentBrowsers</code></td>
+<td><code>number</code></td>
+<td><code>2</code></td>
+<td>Global cap for real Puppeteer browser processes. Matching requests reuse an existing browser as a new tab whenever possible.</td>
+</tr>
+<tr>
+<td><code>scrapeConfig.puppeteer.minWarmBrowsers</code></td>
+<td><code>number</code></td>
+<td><code>0</code></td>
+<td>Minimum number of idle browsers to keep warm for each browser configuration signature that has already been used.</td>
+</tr>
+<tr>
+<td><code>scrapeConfig.puppeteer.idleBrowserTTL</code></td>
+<td><code>number</code></td>
+<td><code>60000</code></td>
+<td>How long an idle pooled browser stays alive before it is closed, unless it is still needed to satisfy <code>minWarmBrowsers</code>.</td>
+</tr>
 </tbody>
 </table>
+
+When a provider calls <code>ctx.puppeteer.launch(...)</code>, the manager now leases a tab from a shared browser pool. Calling the returned <code>browser.close()</code> or setting <code>closeOnComplete: true</code> releases that tab back to the pool; calling <code>manager.destroy()</code> closes the real browser processes.
+
+By default, <code>successQuorum</code> resolves immediately once enough providers return results. Enable <code>waitForActiveProvidersAfterQuorum</code> if you want the manager to keep waiting for providers that were already running when quorum was reached, while still cancelling anything that had not started yet.
 
 ---
 
@@ -832,7 +861,12 @@ const manager = await ScrapePluginManager.create({
 	scrapeConfig: {
 		concurrentOperations: 3,
 		successQuorum: 2,
-		operationTimeout: 15000
+		operationTimeout: 15000,
+		puppeteer: {
+			maxConcurrentBrowsers: 2,
+			minWarmBrowsers: 1,
+			idleBrowserTTL: 60000
+		}
 	}
 });
 

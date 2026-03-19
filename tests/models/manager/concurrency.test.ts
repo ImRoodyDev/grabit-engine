@@ -67,6 +67,44 @@ describe("ScrapePluginManager › successQuorum", () => {
 		expect(results).toHaveLength(2);
 	});
 
+	it("should wait for already-running providers when waitForActiveProvidersAfterQuorum is enabled", async () => {
+		const slow = createMockModule({
+			name: "slow",
+			priority: 10,
+			getStreams: jest.fn().mockImplementation(
+				() =>
+					new Promise((resolve) => {
+						const t = setTimeout(() => resolve([mockMediaSource({ providerName: "slow" })]), 250);
+						if (typeof t === "object" && "unref" in t) t.unref();
+					})
+			)
+		});
+		const fast1 = createMockModule({
+			name: "fast-1",
+			priority: 0,
+			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "fast-1" })])
+		});
+		const fast2 = createMockModule({
+			name: "fast-2",
+			priority: 1,
+			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "fast-2" })])
+		});
+
+		const manager = await ScrapePluginManager.create(
+			createRegistryConfig(
+				{ a: fast1, b: fast2, c: slow },
+				{ scrapeConfig: { successQuorum: 2, waitForActiveProvidersAfterQuorum: true, concurrentOperations: 3, operationTimeout: 1_000 } }
+			)
+		);
+
+		const start = Date.now();
+		const results = await manager.getStreams(GRAB_REQUEST);
+		const elapsed = Date.now() - start;
+
+		expect(results).toHaveLength(3);
+		expect(elapsed).toBeGreaterThanOrEqual(200);
+	});
+
 	it("should return partial results when quorum cannot be met due to failures", async () => {
 		const good = createMockModule({
 			name: "good",

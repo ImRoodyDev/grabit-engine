@@ -104,8 +104,8 @@ export type ProviderContext = {
 	 * Optional: May not be available in all environments (e.g., client-side)
 	 */
 	puppeteer: {
-		/** Launches a new browser instance
-		 * @see {@link puppeteerLoad} for the implementation of this utility function, which handles launching a Puppeteer browser instance and navigating to a specified URL, with support for user agent and proxy configurations based on the requester's information.
+		/** Acquires a browser session from the shared manager pool and opens a page/tab.
+		 * @see {@link puppeteerLoad} for the implementation of this utility function, which handles launching or reusing a Puppeteer browser instance and navigating to a specified URL, with support for user agent and proxy configurations based on the requester's information.
 		 */
 		launch: typeof puppeteerLoad;
 	};

@@ -1,4 +1,5 @@
 import { ScrapePluginManager } from "../../../src/controllers/manager";
+import * as puppeteerCore from "../../../src/core/puppeteer";
 import { resetManager, GRAB_REQUEST, createMockModule, createRegistryConfig, mockMediaSource } from "./helpers";
 
 jest.mock("../../../src/services/tmdb", () => ({
@@ -63,5 +64,37 @@ describe("ScrapePluginManager › initialization", () => {
 		const results = await manager.getStreams(GRAB_REQUEST);
 
 		expect(results.length).toBeGreaterThanOrEqual(1);
+	});
+
+	it("should configure and tear down the puppeteer pool from manager lifecycle", async () => {
+		const configureSpy = jest.spyOn(puppeteerCore, "configurePuppeteerPool");
+		const shutdownSpy = jest.spyOn(puppeteerCore, "shutdownPuppeteerPool").mockImplementation(() => undefined);
+
+		const manager = await ScrapePluginManager.create(
+			createRegistryConfig(
+				{ test: createMockModule() },
+				{
+					scrapeConfig: {
+						puppeteer: {
+							maxConcurrentBrowsers: 1,
+							minWarmBrowsers: 1,
+							idleBrowserTTL: 5_000
+						}
+					}
+				}
+			)
+		);
+
+		expect(configureSpy).toHaveBeenCalledWith({
+			maxConcurrentBrowsers: 1,
+			minWarmBrowsers: 1,
+			idleBrowserTTL: 5_000
+		});
+
+		manager.destroy();
+		expect(shutdownSpy).toHaveBeenCalled();
+
+		configureSpy.mockRestore();
+		shutdownSpy.mockRestore();
 	});
 });

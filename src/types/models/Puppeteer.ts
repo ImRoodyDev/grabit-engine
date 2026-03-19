@@ -3,6 +3,33 @@ import type { ScrapeRequester } from "../input/Requester.ts";
 
 type PuppeteerLifeCycleEvent = "domcontentloaded" | "load" | "networkidle0" | "networkidle2";
 
+export type PuppeteerPoolConfig = {
+	/**
+	 * Maximum number of real browser processes the shared pool may keep alive at once.
+	 * Requests above this limit reuse existing matching browsers as new tabs when possible,
+	 * otherwise they wait until a slot is released.
+	 *
+	 * @defaultValue `2`
+	 */
+	maxConcurrentBrowsers?: number;
+
+	/**
+	 * Minimum number of idle browser processes to keep warm for each browser configuration
+	 * signature that has already been used.
+	 *
+	 * @defaultValue `0`
+	 */
+	minWarmBrowsers?: number;
+
+	/**
+	 * How long an idle pooled browser may stay alive before it is closed, unless it is still
+	 * needed to satisfy `minWarmBrowsers`.
+	 *
+	 * @defaultValue `60000`
+	 */
+	idleBrowserTTL?: number;
+};
+
 export type PuppeteerLoadRequest = {
 	requester: ScrapeRequester;
 	browsingOptions?: {
@@ -18,7 +45,8 @@ export type PuppeteerLoadRequest = {
 		 */
 		loadCriteria?: PuppeteerLifeCycleEvent | PuppeteerLifeCycleEvent[];
 
-		/** Whether to close the browser instance after loading the page
+		/** Whether to close the acquired Puppeteer session after loading the page.
+		 * In pooled mode this releases the leased tab and may keep the underlying browser process warm for reuse.
 		 * @defaultValue `true`
 		 */
 		closeOnComplete?: boolean;

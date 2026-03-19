@@ -1,5 +1,5 @@
 import cheerioCore from "../core/cheerio.ts";
-import puppeteerCore, { disableHeadlessMode } from "../core/puppeteer.ts";
+import puppeteerCore, { configurePuppeteerPool, disableHeadlessMode, shutdownPuppeteerPool } from "../core/puppeteer.ts";
 import xhrCore from "../core/xhr.ts";
 import { ScrapeRequester, MediaSource, SubtitleSource, ProviderModule, ProviderModuleManifest, RawScrapeRequester } from "../types/index.ts";
 import { ProviderContext } from "../types/models/Context.ts";
@@ -24,7 +24,7 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 	private constructor(config: ProviderManagerConfig) {
 		super(config);
 		ScrapePluginManager.logger = new DebugLogger(config.debug ?? isDevelopment(), "ScrapePluginManager");
-		ScrapePluginManager.context = ScrapePluginManager.createContext();
+		ScrapePluginManager.context = ScrapePluginManager.createContext(config);
 
 		// Initialize the TMDB API with the provided keys and optional cache TTL
 		TMDB.init(config.tmdbApiKeys, { cacheTTL: config.cache?.TMDB_TTL });
@@ -64,7 +64,7 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 	/** Create provider context based on environment
 	 * This method initializes the provider context with necessary utilities such as Cheerio for HTML parsing, fetchers for HTTP requests, and Puppeteer for headless browser automation. It checks if the environment is Node.js to conditionally include Puppeteer, ensuring compatibility across different environments.
 	 */
-	private static createContext(): ProviderContext {
+	private static createContext(config: ProviderManagerConfig): ProviderContext {
 		// If already created, return the existing context
 		if (this.context) {
 			this.logger.info("Provider context already created. Returning existing context.");
@@ -73,6 +73,9 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 
 		// Check if the environment is Node.js to determine Puppeteer support
 		this.logger.info(`Creating provider context. Environment: ${isNode() ? "Node.js" : "Browser"}, Puppeteer support: ${isNode() ? "Enabled" : "Disabled"}`);
+
+		// Setup scraping pools and utilities based on environment
+		configurePuppeteerPool(config.scrapeConfig?.puppeteer);
 
 		return {
 			xhr: xhrCore,
@@ -88,7 +91,13 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 		fn: (module: ProviderModule, limiter: LimitFunction) => Promise<T[]>,
 		options?: { ignoreQuorum?: boolean; onPartialResult?: (result: T[]) => void }
 	) {
-		const { successQuorum, maxAttempts = 1, concurrentOperations = 5, operationTimeout = secondsToMilliseconds(15) } = this.config.scrapeConfig || {};
+		const {
+			successQuorum,
+			waitForActiveProvidersAfterQuorum = false,
+			maxAttempts = 1,
+			concurrentOperations = 5,
+			operationTimeout = secondsToMilliseconds(15)
+		} = this.config.scrapeConfig || {};
 		const { ignoreQuorum = false, onPartialResult } = options ?? {};
 
 		// Create concurrency limiter
@@ -103,27 +112,35 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 		let settled = 0;
 		let startedCount = 0;
 		let providersWithResults = 0;
+		let completed = false;
 		let quorumReached = false;
 
 		// Wrap the whole operation in a promise that resolves when either:
-		// 1) The success quorum is reached AND all already-running tasks have finished
+		// 1) The success quorum is reached
 		// 2) All tasks have settled
 		// 3) The operation timeout fires
 		const operationPromise = new Promise<T[][]>((resolve) => {
 			const tryResolve = () => {
-				if (!ignoreQuorum && successQuorum !== undefined && providersWithResults >= successQuorum && !quorumReached) {
-					// Quorum satisfied — drop queued tasks that haven't started yet,
-					// but let already-running concurrent slots finish so their results aren't wasted.
-					quorumReached = true;
-					limit.clearQueue();
+				if (completed) return;
+
+				if (!ignoreQuorum && successQuorum !== undefined && providersWithResults >= successQuorum) {
+					if (!quorumReached) {
+						quorumReached = true;
+						// Quorum satisfied — drop queued work immediately. If configured,
+						// keep waiting only for providers that already occupied a running slot.
+						limit.clearQueue();
+					}
+
+					if (!waitForActiveProvidersAfterQuorum || settled >= startedCount) {
+						completed = true;
+						resolve(collected);
+						return;
+					}
 				}
-				// Resolve once every started task has settled (covers both quorum and all-settled paths)
-				if (quorumReached && settled >= startedCount) {
-					resolve(collected);
-					return;
-				}
+
 				// Normal path: all scheduled tasks have settled (no quorum configured)
 				if (settled >= modules.length) {
+					completed = true;
 					resolve(collected);
 				}
 			};
@@ -131,7 +148,7 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 			// Schedule each provider task inside the concurrency limiter
 			for (const module of modules) {
 				limit(async () => {
-					startedCount++; // Increment synchronously before any await so clearQueue() can't race it
+					startedCount++; // Increment synchronously before any await so quorum can distinguish active vs queued work.
 					try {
 						const result = await excuteWithRetries(() => fn(module, limit), maxAttempts);
 						this.recordMetrics(module.provider.config.scheme, true);
@@ -252,6 +269,7 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 		this.stopAutoUpdateService();
 		this.closeOperations();
 		CACHE.stopAutoCleanup();
+		shutdownPuppeteerPool();
 		ScrapePluginManager.instance = undefined!;
 		ScrapePluginManager.context = undefined!;
 		ScrapePluginManager.logger = undefined!;

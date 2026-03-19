@@ -1,6 +1,6 @@
 {
 	"name": "grabit-engine",
-	"version": "1.2.0-alpha.0",
+	"version": "1.2.0-alpha.2",
 	"type": "module",
 	"description": "A plugin-based engine for scraping media streams and subtitles. Works in Node.js, browsers, React and React Native. Load plugins from GitHub, local files, or code — with caching, health tracking, and auto-updates built in.",
 	"author": "imroodydev",

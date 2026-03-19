@@ -10,12 +10,18 @@ The format is based on Keep a Changelog.
 
 - Fixed a race condition in `scrapeProviders` where the shared `requester` object (`media` and `targetLanguageISO`) was mutated inside the concurrent `fn` closure. Concurrent provider dispatches would stomp on each other's values mid-flight. Each invocation now receives its own `localRequester` shallow copy.
 - Fixed language-based media lookup in `scrapeProviders` using `requester.targetLanguageISO` as the cache key instead of the module's declared language. When a provider's primary language differs from the requester's, TMDB is now called with that provider's language so localized titles and metadata are correct for that provider.
-- Fixed quorum short-circuiting abandoning providers that were already executing in concurrent slots. `successQuorum` previously called `resolve()` immediately on quorum, dropping in-flight results. The operation now sets a `quorumReached` flag, clears only the pending queue, and waits for all already-started tasks to settle before resolving.
+- Fixed nondeterministic `successQuorum` timing under scheduler load. Quorum-based operations now resolve immediately once enough providers return results and clear any queued work, instead of sometimes waiting for a slow provider that happened to start in the same concurrency window.
 
 ### Added
 
 - Added `formatTimestamp(date?: Date): string` utility to `src/utils/standard.ts` returning a human-readable `HH:MM:SS:mmm` timestamp.
 - Added per-dispatch timestamps to the provider debug log using `formatTimestamp()`, making concurrent execution visible when `concurrentOperations > 1`.
+- Added manager-level Puppeteer browser pooling with `scrapeConfig.puppeteer.maxConcurrentBrowsers`, `scrapeConfig.puppeteer.minWarmBrowsers`, and `scrapeConfig.puppeteer.idleBrowserTTL` so Node.js scraping can reuse warm browser processes instead of spawning one browser per request.
+- Added `scrapeConfig.waitForActiveProvidersAfterQuorum` to make `successQuorum` behavior configurable. When enabled, the manager still cancels queued providers immediately on quorum, but waits for providers that were already running to finish before resolving.
+
+### Changed
+
+- Changed `ctx.puppeteer.launch()` to lease tabs from the manager-owned browser pool. Calling the returned `browser.close()` or enabling `closeOnComplete` now releases the leased tab; real browser processes are closed when they age out of the pool or when the manager is destroyed.
 
 ## [1.0.3] - 2026-03-19
 
