@@ -174,4 +174,34 @@ describe("puppeteer pool", () => {
 
 		await second.browser.close();
 	});
+
+	it("routes page.close() through pool release so minWarmBrowsers is respected", async () => {
+		const providerPage = createMockPage();
+		const keeperPage = createMockPage();
+		const nextPage = createMockPage();
+		const browser = createMockBrowser();
+
+		browser.newPage.mockResolvedValueOnce(keeperPage).mockResolvedValueOnce(nextPage);
+		mockConnect.mockResolvedValue({ browser, page: providerPage });
+
+		configurePuppeteerPool({ maxConcurrentBrowsers: 1, minWarmBrowsers: 1, idleBrowserTTL: 60_000 });
+
+		const first = await puppeteerLoad(new URL("https://example.com/one"), createRequest());
+
+		// Provider calls page.close() directly instead of browser.close()
+		await first.page.close();
+
+		// Keeper page was still opened to keep the browser warm
+		expect(browser.newPage).toHaveBeenCalledTimes(1);
+		// The real page.close was called (via release logic, not the raw call)
+		expect(providerPage.close).toHaveBeenCalledTimes(1);
+		// Browser was NOT killed
+		expect(browser.close).not.toHaveBeenCalled();
+
+		// Second request reuses the warm browser
+		const second = await puppeteerLoad(new URL("https://example.com/two"), createRequest());
+		expect(mockConnect).toHaveBeenCalledTimes(1);
+
+		await second.browser.close();
+	});
 });

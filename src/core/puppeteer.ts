@@ -314,7 +314,9 @@ async function createPageLease(entry: BrowserPoolEntry): Promise<BrowserLease> {
 	const release = createLeaseRelease(entry, page);
 	// Providers receive a browser-like handle whose close/disconnect only releases their lease.
 	const browserHandle = createProxyBrowserHandle(entry.browser, release);
-	return { browser: browserHandle, page, release };
+	// Proxy the page so page.close() routes through the pool release instead of killing the Chrome tab directly.
+	const pageHandle = createProxyPageHandle(page, release);
+	return { browser: browserHandle, page: pageHandle, release };
 }
 
 /** Builds an idempotent release callback that closes the page and returns the lease to the pool. */
@@ -433,6 +435,19 @@ function createProxyBrowserHandle(browser: PuppeteerLoadResult["browser"], relea
 			return value;
 		}
 	}) as PuppeteerLoadResult["browser"];
+}
+
+/** Proxies page.close() so it routes through the pool release instead of killing the Chrome tab directly. */
+function createProxyPageHandle(page: PageWithCursor, release: () => Promise<void>): PageWithCursor {
+	return new Proxy(page, {
+		get(target, property, receiver) {
+			if (property === "close") return async () => release();
+
+			const value = Reflect.get(target, property, receiver);
+			if (typeof value === "function") return value.bind(target);
+			return value;
+		}
+	}) as PageWithCursor;
 }
 
 /** Normalizes pool values into safe bounded integers before the pool uses them. */
