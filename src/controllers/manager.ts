@@ -5,7 +5,7 @@ import { ScrapeRequester, MediaSource, SubtitleSource, ProviderModule, ProviderM
 import { ProviderContext } from "../types/models/Context.ts";
 import { ProviderManagerConfig, IProviderManagerWorkers } from "../types/models/Manager.ts";
 import { DebugLogger } from "../utils/logger.ts";
-import { excuteWithRetries, isDevelopment, isNode, secondsToMilliseconds } from "../utils/standard.ts";
+import { excuteWithRetries, formatTimestamp, isDevelopment, isNode, secondsToMilliseconds } from "../utils/standard.ts";
 import { isSourceCached, CACHE } from "../services/cache.ts";
 import pLimit, { LimitFunction } from "p-limit";
 import { ModuleManager, ProviderHealthReport, ProviderMetrics } from "./module.ts";
@@ -85,8 +85,8 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 	/** Create an operation with concurrency and retry handling */
 	private async createOperation<T>(
 		modules: ProviderModule[],
-		fn: (module: ProviderModule, limiter: LimitFunction) => Promise<T>,
-		options?: { ignoreQuorum?: boolean; onPartialResult?: (result: T) => void }
+		fn: (module: ProviderModule, limiter: LimitFunction) => Promise<T[]>,
+		options?: { ignoreQuorum?: boolean; onPartialResult?: (result: T[]) => void }
 	) {
 		const { successQuorum, maxAttempts = 1, concurrentOperations = 5, operationTimeout = secondsToMilliseconds(15) } = this.config.scrapeConfig || {};
 		const { ignoreQuorum = false, onPartialResult } = options ?? {};
@@ -98,23 +98,31 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 		});
 		this.limiters.push(limit); // Keep track of limiters to clear them if needed (e.g., on timeout)
 
-		// Collect results and track settled tasks
-		const collected: T[] = [];
+		// Collect non-empty provider results and track settled tasks
+		const collected: T[][] = [];
 		let settled = 0;
+		let startedCount = 0;
+		let providersWithResults = 0;
+		let quorumReached = false;
 
 		// Wrap the whole operation in a promise that resolves when either:
-		// 1) The success quorum is reached
+		// 1) The success quorum is reached AND all already-running tasks have finished
 		// 2) All tasks have settled
 		// 3) The operation timeout fires
-		const operationPromise = new Promise<T[]>((resolve) => {
+		const operationPromise = new Promise<T[][]>((resolve) => {
 			const tryResolve = () => {
-				// Quorum reached — short-circuit
-				if (!ignoreQuorum && successQuorum !== undefined && collected.length >= successQuorum) {
-					limit.clearQueue(); // Cancel queued (not-yet-started) tasks
+				if (!ignoreQuorum && successQuorum !== undefined && providersWithResults >= successQuorum && !quorumReached) {
+					// Quorum satisfied — drop queued tasks that haven't started yet,
+					// but let already-running concurrent slots finish so their results aren't wasted.
+					quorumReached = true;
+					limit.clearQueue();
+				}
+				// Resolve once every started task has settled (covers both quorum and all-settled paths)
+				if (quorumReached && settled >= startedCount) {
 					resolve(collected);
 					return;
 				}
-				// All tasks settled
+				// Normal path: all scheduled tasks have settled (no quorum configured)
 				if (settled >= modules.length) {
 					resolve(collected);
 				}
@@ -123,12 +131,18 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 			// Schedule each provider task inside the concurrency limiter
 			for (const module of modules) {
 				limit(async () => {
+					startedCount++; // Increment synchronously before any await so clearQueue() can't race it
 					try {
 						const result = await excuteWithRetries(() => fn(module, limit), maxAttempts);
 						this.recordMetrics(module.provider.config.scheme, true);
-						if (result !== null && result !== undefined) {
+						if (Array.isArray(result) && result.length > 0) {
 							collected.push(result);
+							providersWithResults++;
 							onPartialResult?.(result);
+						} else {
+							ScrapePluginManager.logger.debug(
+								`Provider "${module.provider.config.scheme}" completed without ${Array.isArray(result) ? "results" : "a valid result payload"}.`
+							);
 						}
 					} catch {
 						this.recordMetrics(module.provider.config.scheme, false);
@@ -147,17 +161,22 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 
 		// Race against the operation timeout
 		let timeoutId: ReturnType<typeof setTimeout> | undefined;
-		const timeoutPromise = new Promise<T[]>((resolve) => {
+		const timeoutPromise = new Promise<T[][]>((resolve) => {
 			timeoutId = setTimeout(() => {
 				limit.clearQueue();
-				ScrapePluginManager.logger.warn(`Operation timed out after ${operationTimeout}ms — returning ${collected.length} result(s) collected so far`);
+				ScrapePluginManager.logger.warn(
+					`Operation timed out after ${operationTimeout}ms — returning ${providersWithResults} provider result set(s) collected so far`
+				);
 				resolve(collected);
 			}, operationTimeout);
 		});
 
 		const results = await Promise.race([operationPromise, timeoutPromise]);
 		clearTimeout(timeoutId); // Prevent the timer from firing after the operation completed
-		ScrapePluginManager.logger.info(`Operation completed: ${results.length}/${modules.length} provider(s) succeeded`);
+		const totalSources = results.reduce((count, providerResults) => count + providerResults.length, 0);
+		ScrapePluginManager.logger.info(
+			`Operation completed: ${providersWithResults}/${modules.length} provider(s) returned results (${totalSources} total item(s))`
+		);
 
 		// Remove the current limiter from the manager's list to prevent memory leaks
 		this.limiters = this.limiters.filter((limiter) => limiter !== limit);
@@ -194,15 +213,23 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 
 		const fn = async (module: ProviderModule, _limiter: LimitFunction) => {
 			const moduleLang = Array.isArray(module.meta.language) ? module.meta.language[0] : module.meta.language;
-			const media = mediaByLanguage.get(requester.targetLanguageISO) ?? (await TMDB.createRequesterMedia(rawRequester));
-			mediaByLanguage.set(moduleLang, media);
 
-			// Rotate the requester media based on the declared language
-			// I have done this because some providers primary language is not primary of the requester but does sent media source of that language
-			// and to make sure that not the wrong title is sent we do this rotation
-			requester.media = media;
-			requester.targetLanguageISO = moduleLang;
-			return await worker(module, requester, ScrapePluginManager.context);
+			// Fetch or retrieve cached media for this module's declared language.
+			// When the module's language differs from the requester's, TMDB is called with
+			// that language so localized titles/metadata are correct for the provider.
+			let media = mediaByLanguage.get(moduleLang);
+			if (!media) {
+				media = rawRequester.media.type === "channel" ? requester.media : await TMDB.createRequesterMedia({ ...rawRequester, targetLanguageISO: moduleLang });
+				mediaByLanguage.set(moduleLang, media);
+			}
+
+			// Build a per-invocation copy to avoid mutating the shared requester across concurrent operations
+			const localRequester: ScrapeRequester = { ...requester, media, targetLanguageISO: moduleLang };
+			ScrapePluginManager.logger.debug(`[${formatTimestamp()}] Dispatching ${providerType} scrape to provider "${module.provider.config.scheme}"`, {
+				targetLanguageISO: localRequester.targetLanguageISO,
+				media: localRequester.media
+			});
+			return await worker(module, localRequester, ScrapePluginManager.context);
 		};
 
 		return await this.createOperation(providers, fn, operationOptions);

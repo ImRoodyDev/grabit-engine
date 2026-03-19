@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * CLI tool to bundle provider plugins into standalone single-file ES modules.
+ * CLI tool to bundle provider plugins into standalone single-file JS modules.
  *
  * Each provider's source files (index.ts, config.ts, stream.ts, subtitle.ts)
- * are bundled into a single self-contained index.js with NO external imports.
+ * are bundled into a single self-contained index.js with NO npm/package imports.
  * This ensures the file can be fetched from GitHub and loaded via dynamic
  * import() without any dependency resolution issues.
  *
@@ -23,18 +23,83 @@
  *   providers/loodvidrsc/index.ts       → resolved as scheme "loodvidrsc"
  *
  * Output:
- *   <out>/<scheme>/index.js   ← standalone ES module (default export)
+ *   <out>/<scheme>/index.js   ← standalone runtime-loadable module (default export)
  *
  * See scripts/BUNDLING.md for the full guide.
  */
 
 import fs from "node:fs";
 import path from "node:path";
+import { builtinModules } from "node:module";
 
 const ROOT = process.cwd();
 const DEFAULT_PROVIDERS_DIR = path.join(ROOT, "providers");
 const DEFAULT_OUT_DIR = path.join(ROOT, "dist");
 const MANIFEST_PATH = path.join(ROOT, "manifest.json");
+const PROVIDER_SHIM_PATH = "grabit-engine-provider-shim";
+const PROVIDER_CRYPTO_SHIM_PATH = "grabit-engine-provider-crypto-shim";
+
+// ─── Node.js Built-ins ──────────────────────────────────────────────
+
+/** Set of Node.js core module names (e.g. "fs", "crypto", "path"). */
+const NODE_BUILTINS = new Set(builtinModules.filter((m) => !m.startsWith("_")));
+
+/** Check whether a bare import specifier is a Node.js built-in. */
+function isNodeBuiltin(specifier) {
+	if (specifier.startsWith("node:")) return true;
+	return NODE_BUILTINS.has(specifier.split("/")[0]);
+}
+
+// ─── Context-Provided Packages ──────────────────────────────────────
+
+/**
+ * Packages that the runtime `ProviderContext` already injects.
+ * Providers must NOT import these directly — they will not be available
+ * when the bundle is loaded from a temp directory.
+ *
+ * Map: package name → guidance message showing the correct ctx usage.
+ */
+const CONTEXT_PROVIDED = new Map([
+	["cheerio", "ctx.cheerio.$load(html) or ctx.cheerio.load(url, requester, ctx.xhr)"],
+	["puppeteer", "ctx.puppeteer.launch(url, options)"],
+	["puppeteer-real-browser", "ctx.puppeteer.launch(url, options)"],
+	["impit", "ctx.xhr.fetch(url, options, requester) — Impit is used internally"],
+	["undici", "ctx.xhr.fetch(url, options, requester)"],
+	["node-fetch", "ctx.xhr.fetch(url, options, requester)"]
+]);
+
+/** Extract the npm package name from a bare import specifier. */
+function packageName(specifier) {
+	const parts = specifier.split("/");
+	return specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
+}
+
+// ─── Provider-Safe Modules ──────────────────────────────────────────
+
+/**
+ * Modules from grabit-engine that are safe to include in provider bundles.
+ * These depend only on lightweight utilities, types, and Node.js built-ins.
+ *
+ * Heavy modules are intentionally EXCLUDED to prevent cheerio, impit,
+ * puppeteer and react from leaking into the bundle:
+ *   controllers/manager, core/*, services/fetcher, services/github,
+ *   services/registry, services/cache, hooks/*
+ *
+ * services/crypto is handled separately through a virtual shim so providers
+ * can keep importing { Crypto } from "grabit-engine" without pulling the
+ * service's atob/btoa polyfill side-effects into every bundle.
+ */
+const PROVIDER_SAFE_MODULES = [
+	"controllers/provider",
+	"models/provider",
+	"services/unpacker",
+	"services/tldts",
+	"types/index",
+	"utils/path",
+	"utils/standard",
+	"utils/similarity",
+	"utils/extractor"
+];
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -140,11 +205,30 @@ function discoverProviders(srcDir, outDir, filterScheme) {
 
 				// Use the manifest's `dir` field so the output matches what
 				// GithubService fetches: {rootDir}/{dir}/{scheme}/index.js
-				const manifestDir = manifest?.[childRelative]?.dir ?? "";
-				const outputDir = path.join(outDir, manifestDir, childRelative);
+				//
+				// The manifest key may be the full relative path (e.g. "debug/ip")
+				// or just the leaf scheme name (e.g. "ip").  Try both.
+				const leafScheme = entry.name;
+				let manifestDir, schemeForOutput;
+
+				if (manifest?.[childRelative]?.dir != null) {
+					// Full relative path matches a manifest key
+					manifestDir = manifest[childRelative].dir;
+					schemeForOutput = childRelative;
+				} else if (manifest?.[leafScheme]?.dir != null) {
+					// Leaf scheme name matches a manifest key
+					manifestDir = manifest[leafScheme].dir;
+					schemeForOutput = leafScheme;
+				} else {
+					// No manifest entry — fall back to childRelative with no dir prefix
+					manifestDir = "";
+					schemeForOutput = childRelative;
+				}
+
+				const outputDir = path.join(outDir, manifestDir, schemeForOutput);
 
 				providers.push({
-					scheme: childRelative,
+					scheme: schemeForOutput,
 					dir: childDir,
 					entry: entryFile,
 					output: path.join(outputDir, "index.js")
@@ -186,6 +270,176 @@ function cleanBundles(providers) {
 
 // ─── Bundle ─────────────────────────────────────────────────────────
 
+/**
+ * Create the esbuild plugin that handles import resolution for provider bundles.
+ *
+ * Strategy:
+ *  1. The main `grabit-engine` entry is replaced with a lightweight shim that
+ *     only re-exports provider-safe modules — preventing heavy transitive deps
+ *     (cheerio, impit, puppeteer, react) from being pulled into the bundle.
+ *  2. `grabit-engine/*` subpath imports resolve normally (let esbuild handle).
+ *  3. Node.js built-ins (`crypto`, `fs`, `path`, …) are externalized.
+ *  4. Known context-provided packages (`cheerio`, `impit`, …) are externalized
+ *     and flagged — providers must use ProviderContext (ctx) instead.
+ *  5. Everything else is resolved and inlined by esbuild.
+ *
+ * @param {Set<string>} contextImports  Mutable set — collects context-provided
+ *                                       packages that were imported directly.
+ */
+function createExternalizePlugin(contextImports) {
+	let shimResolveDir = null;
+	let isResolvingShim = false;
+
+	function resolveVirtualCryptoShim() {
+		return { path: PROVIDER_CRYPTO_SHIM_PATH, namespace: "provider-shim" };
+	}
+
+	return {
+		name: "provider-bundler",
+		setup(build) {
+			// ── 1. Replace main "grabit-engine" with provider-safe shim ──
+			// When a provider does `import { X } from "grabit-engine"`, the main
+			// entry re-exports EVERYTHING including the manager, core modules,
+			// and hooks — pulling in cheerio, impit, puppeteer, and react.
+			// We intercept this and serve a shim that only re-exports the
+			// lightweight, provider-safe modules.
+			build.onResolve({ filter: /^grabit-engine$/ }, async (args) => {
+				if (args.kind === "entry-point" || isResolvingShim) return null;
+
+				// Resolve once to discover the installed package location
+				if (!shimResolveDir) {
+					isResolvingShim = true;
+					try {
+						const result = await build.resolve("grabit-engine", {
+							kind: "import-statement",
+							resolveDir: args.resolveDir
+						});
+						if (!result.errors?.length) {
+							shimResolveDir = path.dirname(result.path);
+						}
+					} finally {
+						isResolvingShim = false;
+					}
+				}
+
+				return { path: PROVIDER_SHIM_PATH, namespace: "provider-shim" };
+			});
+
+			build.onResolve({ filter: /^grabit-engine-provider-crypto-shim$/ }, () => resolveVirtualCryptoShim());
+
+			build.onResolve({ filter: /^grabit-engine\/services\/crypto(?:\.(?:js|ts))?$/ }, (args) => {
+				if (args.kind === "entry-point") return null;
+				return resolveVirtualCryptoShim();
+			});
+
+			build.onLoad({ filter: /.*/, namespace: "provider-shim" }, (args) => {
+				if (args.path === PROVIDER_CRYPTO_SHIM_PATH) {
+					return {
+						contents: [
+							'const runtimeRequire = typeof require === "function" ? require : undefined;',
+							"const globalCryptoCandidates = [globalThis.__grabitCrypto, globalThis.Crypto, globalThis.crypto];",
+							'const isReactNative = typeof navigator !== "undefined" && navigator.product === "ReactNative";',
+							"let Crypto;",
+							"",
+							"if (runtimeRequire) {",
+							'\tconst moduleNames = isReactNative ? ["react-native-quick-crypto", "crypto"] : ["crypto", "react-native-quick-crypto"];',
+							"\tfor (const moduleName of moduleNames) {",
+							"\t\ttry {",
+							"\t\t\tCrypto = runtimeRequire(moduleName);",
+							"\t\t\tif (Crypto) break;",
+							"\t\t} catch {",
+							"\t\t\t// Try the next runtime candidate.",
+							"\t\t}",
+							"\t}",
+							"}",
+							"",
+							"if (!Crypto) {",
+							'\tCrypto = globalCryptoCandidates.find((candidate) => candidate && typeof candidate.createHash === "function");',
+							"}",
+							"",
+							"if (!Crypto) {",
+							"\tthrow new Error(",
+							"\t\t'Crypto is not available in this runtime. In React Native, install react-native-quick-crypto and expose it via require(\"react-native-quick-crypto\") or set globalThis.__grabitCrypto/globalThis.crypto before evaluating GitHub provider bundles.'",
+							"\t);",
+							"}",
+							"",
+							"export { Crypto };"
+						].join("\n"),
+						loader: "js"
+					};
+				}
+
+				// Determine whether the installed package has .ts or .js files
+				const dir = shimResolveDir || path.join(ROOT, "src");
+				const hasTs = fs.existsSync(path.join(dir, "controllers", "provider.ts"));
+				const ext = hasTs ? ".ts" : ".js";
+				const loader = hasTs ? "ts" : "js";
+
+				const lines = PROVIDER_SAFE_MODULES.map((m) => `export * from "./${m}${ext}";`);
+				lines.push(`export { Crypto } from "${PROVIDER_CRYPTO_SHIM_PATH}";`);
+				// Also re-export ISO6391 (lightweight data-only package)
+				lines.push(`export { default as ISO6391 } from "iso-639-1";`);
+
+				return { contents: lines.join("\n"), resolveDir: dir, loader };
+			});
+
+			// ── 2. Block unsafe grabit-engine/* subpath imports ──
+			// Only allow subpaths that resolve to provider-safe modules.
+			// Unsafe subpaths (core/*, services/fetcher, controllers/manager,
+			// hooks/*) would transitively pull in cheerio, impit, puppeteer.
+			build.onResolve({ filter: /^grabit-engine\// }, (args) => {
+				if (args.kind === "entry-point") return null;
+
+				// Extract the subpath after "grabit-engine/"
+				const subpath = args.path.slice("grabit-engine/".length);
+
+				// Check whether the subpath starts with a safe module prefix
+				const isSafe = PROVIDER_SAFE_MODULES.some((safe) => subpath === safe || subpath.startsWith(safe + "/"));
+
+				if (isSafe) return null; // let esbuild resolve normally
+
+				// Unsafe subpath — block with a clear error
+				return {
+					errors: [
+						{
+							text:
+								`Unsafe import "${args.path}" blocked. ` +
+								`This module transitively pulls in heavy runtime dependencies (cheerio, impit, etc.) ` +
+								`that are not available when the bundle is loaded from a temp directory. ` +
+								`Use ProviderContext (ctx) for HTTP, HTML parsing, and browser automation instead.`
+						}
+					]
+				};
+			});
+
+			// ── 3. Handle all remaining bare imports ──
+			build.onResolve({ filter: /^[^./]/ }, (args) => {
+				if (args.kind === "entry-point" || /^[a-zA-Z]:/.test(args.path)) {
+					return null;
+				}
+
+				// Node.js built-ins — safe to externalize everywhere
+				if (isNodeBuiltin(args.path)) {
+					return { path: args.path, external: true };
+				}
+
+				// Context-provided packages — externalize + flag as forbidden
+				const pkg = packageName(args.path);
+				if (CONTEXT_PROVIDED.has(pkg)) {
+					contextImports.add(pkg);
+					return { path: args.path, external: true };
+				}
+
+				// Everything else — let esbuild resolve & inline.
+				// Small npm packages (parse-duration, tldts, validator, etc.)
+				// will be fully inlined. If not installed, esbuild fails with
+				// a clear "Could not resolve …" message.
+				return null;
+			});
+		}
+	};
+}
+
 async function bundleProviders(providers, dryRun, outDir) {
 	// Lazy-import esbuild so the error message is clear if not installed
 	let esbuild;
@@ -205,6 +459,8 @@ async function bundleProviders(providers, dryRun, outDir) {
 
 	let succeeded = 0;
 	let failed = 0;
+	/** @type {Map<string, Set<string>>} scheme → set of forbidden packages */
+	const allContextViolations = new Map();
 
 	for (const provider of providers) {
 		const relEntry = path.relative(ROOT, provider.entry);
@@ -222,12 +478,15 @@ async function bundleProviders(providers, dryRun, outDir) {
 			fs.mkdirSync(outputDir, { recursive: true });
 		}
 
+		// Per-provider import tracking
+		const contextImports = new Set();
+
 		try {
 			const result = await esbuild.build({
 				entryPoints: [provider.entry],
 				outfile: provider.output,
 				bundle: true,
-				format: "esm",
+				format: "cjs",
 				platform: "node",
 				target: "esnext",
 				treeShaking: true,
@@ -235,29 +494,7 @@ async function bundleProviders(providers, dryRun, outDir) {
 				minifyWhitespace: false,
 				minifyIdentifiers: false,
 
-				// Mark all node_modules packages as external EXCEPT grabit-engine.
-				// Providers only need lightweight grabit-engine utilities (Provider class,
-				// defineProviderModule, ProcessError, path utils) which get inlined.
-				// Heavy deps (cheerio, puppeteer, undici, etc.) are provided at runtime
-				// through the provider context (ctx) and must NOT be bundled.
-				plugins: [
-					{
-						name: "externalize-deps",
-						setup(build) {
-							// Externalize any bare import that isn't grabit-engine or a relative/absolute path
-							build.onResolve({ filter: /^[^./]/ }, (args) => {
-								// Don't externalize entry points or absolute paths (Windows drive letters)
-								if (args.kind === "entry-point" || /^[a-zA-Z]:/.test(args.path)) {
-									return null;
-								}
-								if (args.path === "grabit-engine" || args.path.startsWith("grabit-engine/")) {
-									return null; // let esbuild resolve & inline grabit-engine
-								}
-								return { path: args.path, external: true };
-							});
-						}
-					}
-				],
+				plugins: [createExternalizePlugin(contextImports)],
 
 				// Handle JSON imports (manifest.json)
 				loader: {
@@ -289,6 +526,21 @@ async function bundleProviders(providers, dryRun, outDir) {
 				}
 			}
 
+			// ── Post-build import validation ────────────────────────────
+			if (contextImports.size > 0) {
+				allContextViolations.set(provider.scheme, contextImports);
+				error(`Provider "${provider.scheme}" directly imports runtime-injected packages:`);
+				for (const pkg of contextImports) {
+					const hint = CONTEXT_PROVIDED.get(pkg) ?? "use ProviderContext";
+					error(`  × "${pkg}" → ${hint}`);
+				}
+				error(
+					`  These packages are NOT available when the bundle is loaded from a temp directory.\n` +
+						`  Remove the direct imports and use the ProviderContext (ctx) argument instead.`
+				);
+				// Still count as succeeded (bundle was written) but flag the issue
+			}
+
 			const size = fileSize(provider.output);
 			success(`${relEntry} → ${relOutput} (${size})`);
 			succeeded++;
@@ -298,10 +550,22 @@ async function bundleProviders(providers, dryRun, outDir) {
 		}
 	}
 
-	// Summary
+	// ── Summary ─────────────────────────────────────────────────────
 	console.log();
-	if (failed === 0) {
+	if (allContextViolations.size > 0) {
+		console.log();
+		warn(
+			`${allContextViolations.size} provider(s) import packages that must come from ProviderContext.\n` +
+				`  These bundles will FAIL at runtime when loaded from GitHub.\n` +
+				`  Fix the provider source code to use ctx.cheerio / ctx.xhr / ctx.puppeteer instead of direct imports.`
+		);
+		console.log();
+	}
+
+	if (failed === 0 && allContextViolations.size === 0) {
 		success(`All ${succeeded} provider(s) bundled successfully.`);
+	} else if (failed === 0) {
+		warn(`${succeeded} bundled, but ${allContextViolations.size} have forbidden imports (see above).`);
 	} else {
 		warn(`${succeeded} succeeded, ${failed} failed.`);
 		process.exit(1);
@@ -329,6 +593,14 @@ async function main() {
 		info("No providers found to bundle.");
 		info("Create one first: npx create-provider <scheme>");
 		return;
+	}
+
+	// When bundling ALL providers (no specific scheme), wipe the output directory
+	// first so stale/renamed/deleted providers don't linger.
+	// When bundling a single provider, leave the rest of the output intact.
+	if (!scheme && !dryRun && fs.existsSync(outDir)) {
+		info(`Cleaning output directory: ${path.relative(ROOT, outDir)}`);
+		fs.rmSync(outDir, { recursive: true, force: true });
 	}
 
 	await bundleProviders(providers, dryRun, outDir);

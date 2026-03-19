@@ -1,4 +1,4 @@
-import { RequestInit, RequestRetryInit, RequestTimeoutInit } from "../../services/fetcher.ts";
+import type { RequestInit, RequestRetryInit, RequestTimeoutInit } from "../../services/fetcher.ts";
 
 export type ProviderFetchOptions = (RequestInit | RequestRetryInit | RequestTimeoutInit) & {
 	/** Attach User-Agent header to the request (default: false) */

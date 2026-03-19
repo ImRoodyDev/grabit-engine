@@ -1,6 +1,6 @@
 # Bundling Providers
 
-This guide explains how to bundle provider plugins into **standalone single-file ES modules** so they can be fetched from GitHub (or any remote source) and loaded at runtime without dependency issues.
+This guide explains how to bundle provider plugins into **standalone single-file JavaScript modules** so they can be fetched from GitHub (or any remote source) and loaded at runtime without dependency issues.
 
 ---
 
@@ -13,7 +13,7 @@ import { Provider } from "grabit-engine"; // ❌ can't resolve
 import { config } from "./config"; // ❌ file doesn't exist
 ```
 
-…it will fail. The solution: **bundle everything into one self-contained file** with zero imports.
+…it will fail. The solution: **bundle everything into one self-contained file** with no npm/package imports at runtime.
 
 ---
 
@@ -27,9 +27,9 @@ The bundler uses **[esbuild](https://esbuild.github.io/)** to:
    - The `manifest.json` data
    - Runtime code from `grabit-engine` (`Provider`, `defineProviderModule`, `ProcessError`, etc.)
 3. Tree-shake unused code — only what's actually called at runtime makes it in
-4. Output a single `index.js` ES module with a `default` export
+4. Output a single `index.js` runtime-loadable module with a `default` export
 
-The result is a **fully standalone file** that works anywhere `import()` is supported.
+The result is a **fully standalone file** that works in Node.js temp-file loading and in custom browser / React Native `moduleResolver` flows. If a provider explicitly uses `Crypto`, the bundle resolves it at runtime from Node's built-in `crypto`, `react-native-quick-crypto`, or a global polyfill such as `globalThis.__grabitCrypto` / `globalThis.crypto`.
 
 ---
 

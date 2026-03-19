@@ -11,6 +11,7 @@ import {
 import { ResolvedProviderSource } from "../types/models/Manager.ts";
 import { pathJoin } from "../utils/path.ts";
 import { isNode } from "../utils/standard.ts";
+import { Logger } from "../utils/logger.ts";
 import { validateProvidersManifest, validateProviderModules } from "../utils/validator.ts";
 import { appFetch } from "./fetcher.ts";
 
@@ -24,6 +25,25 @@ export interface GitHubFetchOptions extends GitHubRepoInfo {
 	token?: string;
 	/** Normalized root directory prefix (no leading slash, with trailing slash, or empty string) */
 	rootDir: string;
+}
+
+function isProviderModuleShape(value: unknown): value is ProviderModule {
+	return typeof value === "object" && value !== null && "provider" in value && "meta" in value && "workers" in value;
+}
+
+function normalizeResolvedProviderModule(value: unknown): ProviderModule | null {
+	let current = value;
+
+	for (let depth = 0; depth < 4; depth++) {
+		if (isProviderModuleShape(current)) return current;
+		if (typeof current !== "object" || current === null || !("default" in current)) break;
+
+		const next = (current as { default?: unknown }).default;
+		if (next === undefined || next === current) break;
+		current = next;
+	}
+
+	return isProviderModuleShape(current) ? current : null;
 }
 
 export namespace GithubService {
@@ -178,19 +198,37 @@ export namespace GithubService {
 		for (const [scheme, manifest] of Object.entries(providers)) {
 			// Try index.js first, fall back to index.ts
 			let sourceCode: string;
+			const fetchPath = `${pathJoin(manifest.dir, scheme)}/index.js`;
+			const fullApiUrl = `https://api.github.com/repos/${opts.owner}/${opts.repo}/contents/${opts.rootDir}${fetchPath}?ref=${opts.branch}`;
 			try {
-				sourceCode = await fetchFileFromGitHub(opts, `${pathJoin(manifest.dir, scheme)}/index.js`);
+				sourceCode = await fetchFileFromGitHub(opts, fetchPath);
 			} catch (error) {
+				Logger.error(
+					`[GithubService] Failed to fetch source for provider "${scheme}":\n` +
+						`  URL: ${fullApiUrl}\n` +
+						`  rootDir: "${opts.rootDir || "(none)"}"\n` +
+						`  manifest.dir: "${manifest.dir ?? "(none)"}"\n` +
+						`  Error: ${error instanceof Error ? error.message : error}`
+				);
 				modules[scheme] = null;
 				continue; // Skip this provider but continue loading others
 			}
 
-			if (moduleResolver) {
-				// User-provided resolver (for browsers / React Native)
-				modules[scheme] = await moduleResolver(scheme, sourceCode);
-			} else if (isNode()) {
-				// Default: Node.js temp-file resolver
-				modules[scheme] = await defaultNodeResolver(scheme, sourceCode);
+			try {
+				if (moduleResolver) {
+					// User-provided resolver (for browsers / React Native)
+					modules[scheme] = normalizeResolvedProviderModule(await moduleResolver(scheme, sourceCode));
+				} else if (isNode()) {
+					// Default: Node.js temp-file resolver
+					modules[scheme] = await defaultNodeResolver(scheme, sourceCode);
+				}
+
+				if (modules[scheme] === null) {
+					Logger.error(`[GithubService] Provider "${scheme}" resolved, but did not export a valid ProviderModule shape.`);
+				}
+			} catch (error) {
+				Logger.error(`[GithubService] Failed to resolve module for provider "${scheme}": ${error instanceof Error ? error.message : error}`);
+				modules[scheme] = null;
 			}
 		}
 
@@ -204,7 +242,7 @@ export namespace GithubService {
 	 *
 	 * Throws a clear error when running outside Node.js.
 	 */
-	async function defaultNodeResolver(scheme: string, sourceCode: string): Promise<ProviderModule> {
+	async function defaultNodeResolver(scheme: string, sourceCode: string): Promise<ProviderModule | null> {
 		let fs: typeof import("fs");
 		let path: typeof import("path");
 		let os: typeof import("os");
@@ -227,7 +265,27 @@ export namespace GithubService {
 		const filePath = path.join(tmpDir, "index.js");
 		fs.writeFileSync(filePath, sourceCode, "utf-8");
 
-		const mod = await import(urlMod.pathToFileURL(filePath).href);
-		return mod.default ?? mod;
+		try {
+			const mod = await import(urlMod.pathToFileURL(filePath).href);
+			return normalizeResolvedProviderModule(mod);
+		} catch (err: unknown) {
+			// Detect "Cannot find package" errors — these almost always mean the
+			// provider bundle contains a direct import of an npm package that
+			// should instead be accessed through ProviderContext.
+			const msg = err instanceof Error ? err.message : String(err);
+			const pkgMatch = msg.match(/Cannot find package '([^']+)'/);
+			if (pkgMatch) {
+				throw new ProcessError({
+					code: "PROVIDER_MISSING_PACKAGE",
+					message:
+						`Failed to load provider "${scheme}": Cannot find package '${pkgMatch[1]}'. ` +
+						`Provider bundles run in an isolated temp directory with no node_modules. ` +
+						`If this is a runtime-provided library (cheerio, puppeteer, etc.), ` +
+						`the provider must use the ProviderContext (ctx) argument instead of importing it directly. ` +
+						`Re-bundle with "npx bundle-provider" to see which imports need fixing.`
+				});
+			}
+			throw err;
+		}
 	}
 }

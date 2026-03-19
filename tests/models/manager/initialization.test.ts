@@ -56,4 +56,12 @@ describe("ScrapePluginManager › initialization", () => {
 		// Only the valid module contributes results
 		expect(results.length).toBeGreaterThanOrEqual(1);
 	});
+
+	it("should accept schemes that start with a digit", async () => {
+		const numericSchemeModule = createMockModule({ name: "9filmyzilla", scheme: "9filmyzilla" });
+		const manager = await ScrapePluginManager.create(createRegistryConfig({ "9filmyzilla": numericSchemeModule }));
+		const results = await manager.getStreams(GRAB_REQUEST);
+
+		expect(results.length).toBeGreaterThanOrEqual(1);
+	});
 });

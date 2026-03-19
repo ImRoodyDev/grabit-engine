@@ -453,6 +453,8 @@ async function loadProviderModule(scheme, srcDir, noBundle, manifestDir) {
 		success(`Bundled to temp file`);
 	} else {
 		info(`Loading pre-bundled provider: ${dim(path.relative(ROOT, entry.path))}`);
+		tmpFile = createTempCopy(entry.path, `${scheme.replace(/\//g, "_")}-bundled`);
+		modulePath = tmpFile;
 	}
 
 	let mod;
@@ -482,7 +484,7 @@ async function loadProviderModule(scheme, srcDir, noBundle, manifestDir) {
  * This mirrors what ScrapePluginManager.createContext() does internally.
  */
 async function loadContext(scheme) {
-	const distCore = path.join(PKG_ROOT, "dist", "src", "core");
+	const distCore = path.join(PKG_ROOT, "dist", "esm", "src", "core");
 
 	if (!fs.existsSync(distCore)) {
 		error(`Package dist not found at: ${distCore}`);
@@ -495,7 +497,7 @@ async function loadContext(scheme) {
 		import(pathToFileURL(path.join(distCore, "xhr.js")).href),
 		import(pathToFileURL(path.join(distCore, "cheerio.js")).href),
 		import(pathToFileURL(path.join(distCore, "puppeteer.js")).href),
-		import(pathToFileURL(path.join(PKG_ROOT, "dist", "src", "utils", "logger.js")).href)
+		import(pathToFileURL(path.join(PKG_ROOT, "dist", "esm", "src", "utils", "logger.js")).href)
 	]);
 
 	// Logger is always in debug mode for the test script
@@ -651,7 +653,7 @@ async function main() {
 	let enrichedMedia = media;
 	if (media.type !== "channel") {
 		try {
-			const tmdbMod = await import(pathToFileURL(path.join(PKG_ROOT, "dist", "src", "services", "tmdb.js")).href);
+			const tmdbMod = await import(pathToFileURL(path.join(PKG_ROOT, "dist", "esm", "src", "services", "tmdb.js")).href);
 			const TMDB = tmdbMod.TMDB;
 
 			// Initialize TMDB with a pool of API keys

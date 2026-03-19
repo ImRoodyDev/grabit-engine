@@ -210,3 +210,11 @@ export function shuffleArray<T>(array: T[]): T[] {
 export function deduplicateArray<T>(array: T[]): T[] {
 	return Array.from(new Set(array));
 }
+
+/** Returns a human-readable timestamp string in `HH:MM:SS:mmm` format. */
+export function formatTimestamp(date: Date = new Date()): string {
+	return (
+		[String(date.getHours()).padStart(2, "0"), String(date.getMinutes()).padStart(2, "0"), String(date.getSeconds()).padStart(2, "0")].join(":") +
+		`:${String(date.getMilliseconds()).padStart(3, "0")}`
+	);
+}

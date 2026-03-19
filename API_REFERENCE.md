@@ -620,6 +620,8 @@ npm install react-native-quick-crypto
 
 This module also polyfills `atob` / `btoa` for environments that don't expose them globally (e.g. React Native < 0.74), using the optional peer dependency [`base-64`](https://www.npmjs.com/package/base-64).
 
+GitHub-loaded provider bundles also resolve `Crypto` at runtime from `react-native-quick-crypto`, `crypto`, `globalThis.__grabitCrypto`, or `globalThis.crypto`, so React Native apps should install the polyfill before evaluating remote provider source.
+
 ```typescript
 import { Crypto } from "grabit-engine";
 

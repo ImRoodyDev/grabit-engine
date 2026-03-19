@@ -1,4 +1,6 @@
-import { extractExtension, ISO6391, normalizeHeaders } from "../index.ts";
+import { extractExtension } from "../utils/extractor.ts";
+import { default as ISO6391 } from "iso-639-1";
+import { normalizeHeaders } from "../utils/standard.ts";
 import { Provider } from "../models/provider.ts";
 import {
 	InternalIProviderModuleWorkers,
@@ -8,9 +10,34 @@ import {
 	MediaSource,
 	SubtitleSource,
 	ScrapeRequester,
-	ProviderContext
+	ProviderContext,
+	isProcessError
 } from "../types/index.ts";
 import { validateManifestConfiguration } from "../utils/validator.ts";
+
+function describeProviderWorkerError(workerName: "getStreams" | "getSubtitles", manifest: ProviderModuleManifest, error: unknown) {
+	const base = `Provider ${manifest.name} ${workerName} failed`;
+
+	if (isProcessError(error)) {
+		const details = typeof error.details === "string" ? error.details : undefined;
+		return {
+			summary: `${base} [${error.code}]: ${error.message}`,
+			details
+		};
+	}
+
+	if (error instanceof Error) {
+		return {
+			summary: `${base}: ${error.message}`,
+			details: error.stack
+		};
+	}
+
+	return {
+		summary: `${base}: ${String(error)}`,
+		details: undefined
+	};
+}
 
 /**
  *  Define a provider module ,
@@ -55,7 +82,11 @@ function createModuleWorkers(provider: Provider, manifest: ProviderModuleManifes
 						if (!shouldValidate) return withMeta;
 						return validateMediaSources(withMeta, requester, context);
 					} catch (error) {
-						context.log.error(`Error in getStreams of provider ${manifest.name}:`, error);
+						const logEntry = describeProviderWorkerError("getStreams", manifest, error);
+						context.log.error(logEntry.summary);
+						if (logEntry.details) {
+							context.log.debug(`Provider ${manifest.name} getStreams details`, logEntry.details);
+						}
 						throw error;
 					}
 				}
@@ -80,7 +111,11 @@ function createModuleWorkers(provider: Provider, manifest: ProviderModuleManifes
 						if (!shouldValidate) return withMeta;
 						return validateSubtitleSources(withMeta, requester, context);
 					} catch (error) {
-						context.log.error(`Error in getSubtitles of provider ${manifest.name}:`, error);
+						const logEntry = describeProviderWorkerError("getSubtitles", manifest, error);
+						context.log.error(logEntry.summary);
+						if (logEntry.details) {
+							context.log.debug(`Provider ${manifest.name} getSubtitles details`, logEntry.details);
+						}
 						throw error;
 					}
 				}

@@ -103,9 +103,6 @@ describe("appFetch – caching", () => {
 		expect(mockFetchImpl).toHaveBeenCalledTimes(1);
 		expect(res1.status).toBe(200);
 
-		// Wait a tick for the background serialization `.then()` to flush
-		await new Promise((r) => setTimeout(r, 10));
-
 		// Second call — should come from the cache, no new network call
 		const res2 = await appFetch("https://api.example.com/data", { cacheTTL: 60_000 });
 		expect(mockFetchImpl).toHaveBeenCalledTimes(1); // still 1
@@ -125,10 +122,9 @@ describe("appFetch – caching", () => {
 	});
 
 	it("should not cache non-ok responses", async () => {
-		mockFetchImpl.mockResolvedValue(fakeResponse("Not Found", { status: 404, statusText: "Not Found" }));
+		mockFetchImpl.mockImplementation(() => Promise.resolve(fakeResponse("Not Found", { status: 404, statusText: "Not Found" })));
 
 		await appFetch("https://api.example.com/missing", { cacheTTL: 60_000 });
-		await new Promise((r) => setTimeout(r, 10));
 		await appFetch("https://api.example.com/missing", { cacheTTL: 60_000 });
 
 		// Both should have hit the network since 404 is not cached
@@ -137,10 +133,9 @@ describe("appFetch – caching", () => {
 
 	it("should use customCacheKey when provided", async () => {
 		const body = JSON.stringify({ id: 1 });
-		mockFetchImpl.mockResolvedValue(fakeResponse(body, { status: 200 }));
+		mockFetchImpl.mockImplementation(() => Promise.resolve(fakeResponse(body, { status: 200 })));
 
 		await appFetch("https://api.example.com/item/1", { cacheTTL: 60_000, customCacheKey: "item-1" });
-		await new Promise((r) => setTimeout(r, 10));
 
 		// Verify the custom key was used in the cache
 		expect(CACHE.has("item-1")).toBe(true);
@@ -152,11 +147,9 @@ describe("appFetch – caching", () => {
 	});
 
 	it("should differentiate cache keys by HTTP method", async () => {
-		mockFetchImpl.mockResolvedValue(fakeResponse("ok", { status: 200 }));
+		mockFetchImpl.mockImplementation(() => Promise.resolve(fakeResponse("ok", { status: 200 })));
 
 		await appFetch("https://api.example.com/resource", { method: "GET", cacheTTL: 60_000 });
-		await new Promise((r) => setTimeout(r, 10));
-
 		await appFetch("https://api.example.com/resource", { method: "POST", cacheTTL: 60_000 });
 
 		// GET and POST to the same URL should produce separate cache entries → 2 network calls
@@ -164,15 +157,16 @@ describe("appFetch – caching", () => {
 	});
 
 	it("should preserve response headers through cache round-trip", async () => {
-		mockFetchImpl.mockResolvedValue(
-			fakeResponse("body", {
-				status: 200,
-				headers: { "X-Request-Id": "abc-123", "Content-Type": "text/plain" }
-			})
+		mockFetchImpl.mockImplementation(() =>
+			Promise.resolve(
+				fakeResponse("body", {
+					status: 200,
+					headers: { "X-Request-Id": "abc-123", "Content-Type": "text/plain" }
+				})
+			)
 		);
 
 		await appFetch("https://api.example.com/headers", { cacheTTL: 60_000 });
-		await new Promise((r) => setTimeout(r, 10));
 
 		const cached = await appFetch("https://api.example.com/headers", { cacheTTL: 60_000 });
 		expect(cached.headers.get("x-request-id")).toBe("abc-123");
@@ -181,11 +175,10 @@ describe("appFetch – caching", () => {
 
 	it("should respect cache expiration (TTL)", async () => {
 		const body = JSON.stringify({ fresh: true });
-		mockFetchImpl.mockResolvedValue(fakeResponse(body, { status: 200 }));
+		mockFetchImpl.mockImplementation(() => Promise.resolve(fakeResponse(body, { status: 200 })));
 
 		// Cache with a very short TTL
 		await appFetch("https://api.example.com/ttl", { cacheTTL: 50 });
-		await new Promise((r) => setTimeout(r, 10));
 
 		// Should be cached
 		await appFetch("https://api.example.com/ttl", { cacheTTL: 50 });
@@ -336,6 +329,37 @@ describe("fetchResponse", () => {
 		await expect(fetchResponse("https://api.example.com/secret")).rejects.toMatchObject({
 			statusCode: 401
 		});
+	});
+
+	it("should parse JSON correctly when caching is enabled (no body-already-read error)", async () => {
+		const payload = { id: 1265609, title: "Test Movie", translations: { translations: [] } };
+		mockFetchImpl.mockResolvedValueOnce(
+			fakeResponse(JSON.stringify(payload), {
+				status: 200,
+				headers: { "Content-Type": "application/json" }
+			})
+		);
+
+		// This reproduces the TMDB bug: fetchResponse calls appFetch (which caches
+		// the response) and then handleResponse (which reads the body as JSON).
+		// Previously, background serialization could consume the body first.
+		const data = await fetchResponse("https://api.themoviedb.org/3/movie/1265609", { cacheTTL: 60_000 });
+		expect(data).toEqual(payload);
+	});
+
+	it("should return a readable response body from appFetch when caching is enabled", async () => {
+		const body = JSON.stringify({ data: "important" });
+		mockFetchImpl.mockResolvedValueOnce(
+			fakeResponse(body, {
+				status: 200,
+				headers: { "Content-Type": "application/json" }
+			})
+		);
+
+		const res = await appFetch("https://api.example.com/cached-data", { cacheTTL: 60_000 });
+		// The response body must still be readable even though appFetch cached it
+		const json = await res.json();
+		expect(json).toEqual({ data: "important" });
 	});
 });
 

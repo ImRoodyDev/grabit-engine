@@ -1,5 +1,5 @@
-import { ProviderContext } from "../index.ts";
-import { Provider } from "../../index.ts";
+import { ProviderContext } from "./Context.ts";
+import { Provider } from "../../models/provider.ts";
 import { MediaType } from "../input/Media.ts";
 import { ScrapeRequester } from "../input/Requester.ts";
 import { SubtitleSource, MediaSource, InternalSubtitleSource, InternalMediaSource } from "../output/MediaSources.ts";

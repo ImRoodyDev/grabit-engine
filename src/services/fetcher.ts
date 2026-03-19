@@ -257,10 +257,13 @@ export async function appFetch(request: RequestInfo | URL, options: RequestInit 
 
 	// ── Cache write (only successful responses) ─────────────────────────────
 	if (cacheKey && cacheTTL && response.ok) {
-		// Serialize in the background — doesn't block the caller
-		serializeResponse(response).then((serialized) => {
-			CACHE.set(cacheKey, serialized, cacheTTL);
-		});
+		// Serialize the response synchronously, cache it, and return a reconstructed
+		// Response so the original body is never consumed by the caller — this avoids
+		// "Body has already been read" errors with runtimes/libraries (e.g. Impit)
+		// whose Response.clone() may not produce fully independent body streams.
+		const serialized = await serializeResponse(response);
+		CACHE.set(cacheKey, serialized, cacheTTL);
+		return reconstructResponse(serialized);
 	}
 
 	return response;

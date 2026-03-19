@@ -6,6 +6,7 @@ import { ProviderManagerConfig, ResolvedProviderSource, ProvidersManifest } from
 import { DebugLogger } from "../utils/logger.ts";
 import { isCustomError, isDevelopment, minutesToMilliseconds } from "../utils/standard.ts";
 import { CACHE, createSourceCacheKey, createHealthCacheKey } from "../services/cache.ts";
+import { countValidationMessages, formatValidationIssues } from "../utils/validator.ts";
 
 type CachedModules = {
 	meta: ProvidersManifest;
@@ -100,7 +101,7 @@ export abstract class ModuleManager {
 			// In strict mode, throw an error if there are any validation errors
 			if (this.config.strict && result.validations.errors.length > 0) {
 				// In strict mode, throw an error if there are any validation errors
-				const errorMessages = result.validations.errors.map(([scheme, errs]) => `Scheme "${scheme}":\n  - ${errs.join("\n  - ")}`).join("\n");
+				const errorMessages = formatValidationIssues(result.validations.errors);
 				throw new ProcessError({
 					code: "ProviderValidationError",
 					message: `Provider validation failed with the following errors:\n${errorMessages}`,
@@ -108,15 +109,25 @@ export abstract class ModuleManager {
 				});
 			}
 
-			this.logger.info(`Loaded provider manifest: ${result.meta.name} by ${result.meta.author ?? "unknown author"}`);
-			this.logger.info(`Provider schemes found in manifest: ${Object.keys(result.providers).join(", ")}`);
+			const manifestName = typeof result.meta.name === "string" && result.meta.name.trim().length > 0 ? result.meta.name : "unknown manifest";
+			const manifestAuthor = typeof result.meta.author === "string" && result.meta.author.trim().length > 0 ? result.meta.author : "unknown author";
+			const providerSchemes = Array.from(result.providers.keys());
+			const validationErrorCount = countValidationMessages(result.validations.errors);
+			const validationWarningCount = countValidationMessages(result.validations.warnings);
+
+			this.logger.info(`Loaded provider manifest: ${manifestName} by ${manifestAuthor}`);
+			this.logger.info(`Provider schemes found in manifest: ${providerSchemes.length > 0 ? providerSchemes.join(", ") : "(none)"}`);
 			this.logger.info(
-				`Successfully initialized ${this.loadedModules.length} provider(s) with ${result.validations.errors.length} error(s) and ${result.validations.warnings.length} warning(s)`
+				`Successfully initialized ${this.loadedModules.length} provider(s) with ${validationErrorCount} error(s) and ${validationWarningCount} warning(s)`
 			);
+
+			if (result.validations.errors.length > 0) {
+				this.logger.error(`Provider validation completed with errors. Invalid providers were skipped:\n${formatValidationIssues(result.validations.errors)}`);
+			}
 
 			// Log any validation warnings for debugging purposes
 			if (result.validations.warnings.length > 0 && this.config.debug) {
-				const warningMessages = result.validations.warnings.map(([scheme, warns]) => `Scheme "${scheme}":\n  - ${warns.join("\n  - ")}`).join("\n");
+				const warningMessages = formatValidationIssues(result.validations.warnings);
 				this.logger.warn(`Provider validation completed with the following warnings:\n${warningMessages}`);
 			}
 		} catch (error) {

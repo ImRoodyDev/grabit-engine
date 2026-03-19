@@ -91,6 +91,17 @@ If you are targeting React Native, install `base-64` alongside this package. On 
 
 </details>
 
+<details>
+<summary><strong>Optional: crypto polyfill (React Native)</strong></summary>
+
+```bash
+npm install react-native-quick-crypto
+```
+
+If your providers use `Crypto` and you load them in React Native, install `react-native-quick-crypto`. GitHub-loaded provider bundles will look for crypto in this order: `require("react-native-quick-crypto")`, `require("crypto")`, `globalThis.__grabitCrypto`, then `globalThis.crypto`.
+
+</details>
+
 <br />
 
 ---
@@ -478,7 +489,7 @@ When the manager sorts providers for a request, providers whose `language` field
 
 When providers are loaded from **GitHub** (via `GithubService`), each provider is fetched as a **single `index.js` file** and loaded via dynamic `import()` in an isolated temp directory. That directory has no `node_modules` and no sibling files — so relative imports (`./config`) and package imports (`grabit-engine`) would fail.
 
-The bundler solves this by compiling each provider into a **standalone, self-contained ES module** with zero external imports.
+The bundler solves this by compiling each provider into a **standalone, self-contained JavaScript module** with no npm/package imports at runtime. If a provider uses `Crypto`, the bundle resolves it at runtime from Node's built-in `crypto`, `react-native-quick-crypto`, or a global polyfill such as `globalThis.__grabitCrypto` / `globalThis.crypto`.
 
 ### Install esbuild
 

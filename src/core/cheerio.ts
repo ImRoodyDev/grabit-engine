@@ -70,11 +70,12 @@ export async function cheerioLoad(page: URL, request: CheerioLoadRequest, contex
 		};
 	} catch (error) {
 		// If an error occurs during fetching or loading, throw a new error with details
+		const details = getErrorText(error);
 		throw new ProcessError({
 			code: "CheerioLoadError",
 			status: 500,
-			message: error instanceof Error ? `Error loading page with Cheerio: ${error.message}` : "Error loading page with Cheerio",
-			details: error instanceof Error ? error.stack : undefined
+			message: classifyCheerioLoadFailure(page, error),
+			details
 		});
 	}
 }
@@ -114,6 +115,33 @@ export async function cheerioSortResults($page: cheerio.CheerioAPI, selector: TP
 	scoredResults.sort((a, b) => b.score - a.score);
 
 	return scoredResults;
+}
+
+function getErrorText(error: unknown): string {
+	if (error instanceof Error) {
+		return `${error.message}\n${error.stack ?? ""}`.trim();
+	}
+	return String(error);
+}
+
+function classifyCheerioLoadFailure(page: URL, error: unknown): string {
+	const errorText = getErrorText(error);
+	const target = page.href;
+	const host = page.hostname || target;
+
+	if (/No such host is known|dns error|ENOTFOUND|getaddrinfo/i.test(errorText)) {
+		return `DNS lookup failed while loading ${target}. The provider host "${host}" could not be resolved.`;
+	}
+
+	if (/ETIMEDOUT|timed out/i.test(errorText)) {
+		return `Request timed out while loading ${target}. The provider host "${host}" did not respond in time.`;
+	}
+
+	if (/ECONNREFUSED|Failed to connect to the server|ConnectError/i.test(errorText)) {
+		return `Connection failed while loading ${target}. The provider host "${host}" could not be reached.`;
+	}
+
+	return `Error loading page with Cheerio from ${target}: ${error instanceof Error ? error.message : "Unknown error"}`;
 }
 
 const context: ProviderContext["cheerio"] = {

@@ -1,6 +1,7 @@
 {
 	"name": "grabit-engine",
-	"version": "1.0.2",
+	"version": "1.2.0",
+	"type": "module",
 	"description": "A plugin-based engine for scraping media streams and subtitles. Works in Node.js, browsers, React and React Native. Load plugins from GitHub, local files, or code — with caching, health tracking, and auto-updates built in.",
 	"author": "imroodydev",
 	"repository": {
@@ -30,19 +31,33 @@
 		"impit"
 	],
 	"source": "./src/index.ts",
-	"main": "./dist/src/index.js",
-	"module": "./dist/src/index.js",
-	"types": "./dist/src/index.d.ts",
+	"main": "./dist/cjs/src/index.js",
+	"module": "./dist/esm/src/index.js",
+	"types": "./dist/esm/src/index.d.ts",
 	"exports": {
 		".": {
-			"types": "./dist/src/index.d.ts",
-			"import": "./dist/src/index.js",
-			"require": "./dist/src/index.js",
-			"react-native": "./src/index.ts"
+			"types": "./dist/esm/src/index.d.ts",
+			"react-native": "./src/index.ts",
+			"node": {
+				"types": "./dist/esm/src/index.node.d.ts",
+				"import": "./dist/esm/src/index.node.js",
+				"require": "./dist/cjs/src/index.js"
+			},
+			"import": "./dist/esm/src/index.js",
+			"require": "./dist/cjs/src/index.js",
+			"default": "./dist/cjs/src/index.js"
+		},
+		"./react": {
+			"types": "./dist/esm/src/hooks/useSources.d.ts",
+			"react-native": "./src/hooks/useSources.ts",
+			"import": "./dist/esm/src/hooks/useSources.js",
+			"require": "./dist/esm/src/hooks/useSources.js",
+			"default": "./dist/esm/src/hooks/useSources.js"
 		}
 	},
 	"files": [
-		"dist/src",
+		"dist/esm",
+		"dist/cjs",
 		"src",
 		"scripts",
 		"CHANGELOG.md",
@@ -59,14 +74,15 @@
 	"scripts": {
 		"watch": "tsc -w",
 		"test": "jest",
-		"build": "tsc",
+		"build": "tsc -p tsconfig.json && node scripts/build-cjs.js && node scripts/postbuild.js",
 		"build:local": "npm run build && npm pack",
 		"prepublishOnly": "npm run build",
 		"create-provider": "node scripts/create-provider.js",
 		"bundle": "node scripts/bundle-provider.js",
 		"bundle:clean": "node scripts/bundle-provider.js --clean",
 		"test-provider": "node scripts/test-provider.js",
-		"publish:npm": "npx -p dotenv-cli dotenv -e .env -- npm publish"
+		"publish:npm": "npx -p dotenv-cli dotenv -e .env -- npm publish",
+		"publish:alpha:npm": "npx -p dotenv-cli dotenv -e .env -- npm publish --tag alpha"
 	},
 	"devDependencies": {
 		"@babel/preset-env": "^7.29.0",
@@ -100,10 +116,14 @@
 	},
 	"peerDependencies": {
 		"puppeteer-real-browser": "^1.4.4",
+		"react-native-quick-crypto": "^0.7.17",
 		"react": ">=17.0.0"
 	},
 	"peerDependenciesMeta": {
 		"puppeteer-real-browser": {
+			"optional": true
+		},
+		"react-native-quick-crypto": {
 			"optional": true
 		},
 		"react": {
