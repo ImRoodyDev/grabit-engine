@@ -1,18 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { ScrapePluginManager } from "../controllers/manager.ts";
+import { GrabitManager } from "../controllers/manager.ts";
 import type { ProviderManagerConfig } from "../types/models/Manager.ts";
 import { ProcessError } from "../types/ProcessError.ts";
 import type { SourcesError } from "../types/hooks/useSources.ts";
 
 /**
- * Internal hook that manages the {@link ScrapePluginManager} singleton lifecycle.
+ * Internal hook that manages the {@link GrabitManager} singleton lifecycle.
  *
  * - Creates the manager on mount (async).
  * - Destroys the manager on unmount so resources are released.
  * - Safe under React 18 StrictMode (double-mount / double-unmount).
  */
 export function useManager(config: ProviderManagerConfig) {
-	const [manager, setManager] = useState<ScrapePluginManager | null>(null);
+	const [manager, setManager] = useState<GrabitManager | null>(null);
 	const [isInitializing, setIsInitializing] = useState(true);
 	const [initError, setInitError] = useState<SourcesError | null>(null);
 
@@ -22,15 +22,15 @@ export function useManager(config: ProviderManagerConfig) {
 	/**
 	 * The config object is intentionally **not** listed as a dependency.
 	 * The manager is a singleton — once created, subsequent calls to
-	 * `ScrapePluginManager.create()` return the existing instance regardless
+	 * `GrabitManager.create()` return the existing instance regardless
 	 * of the config that is passed.  Re-creating on every config reference
 	 * change would be wasteful and error-prone.
 	 */
 	useEffect(() => {
 		mountedRef.current = true;
-		let instance: ScrapePluginManager | null = null;
+		let instance: GrabitManager | null = null;
 
-		ScrapePluginManager.create(config)
+		GrabitManager.create(config)
 			.then((mgr) => {
 				if (!mountedRef.current) {
 					// Component already unmounted while we were awaiting — clean up.

@@ -176,7 +176,7 @@ The `dist/` folder is what gets committed to Git and fetched by `GithubService`.
 When configuring the GitHub source, set `rootDir` to `"dist"`:
 
 ```typescript
-const manager = await ScrapePluginManager.create({
+const manager = await GrabitManager.create({
 	source: {
 		type: "github",
 		url: "https://github.com/your-org/your-providers",

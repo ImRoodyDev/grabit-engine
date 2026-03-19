@@ -10,7 +10,7 @@
 
 ## 📑 Table of Contents
 
-- [ScrapePluginManager](#scrapepluginmanager)
+- [GrabitManager](#grabitmanager)
   - [ProviderManagerConfig](#providermanagerconfig)
   - [ProviderSource](#providersource)
   - [ProvidersManifest](#providersmanifest)
@@ -50,13 +50,13 @@
 
 ---
 
-## `ScrapePluginManager`
+## `GrabitManager`
 
 The main orchestrator — creates, manages, and queries provider plugins.
 
 | Method                                  | Returns                                | Description                                                                                                                 |
 | --------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `ScrapePluginManager.create(config)`    | `Promise<ScrapePluginManager>`         | Creates the manager and loads all your provider plugins.                                                                    |
+| `GrabitManager.create(config)`          | `Promise<GrabitManager>`               | Creates the manager and loads all your provider plugins.                                                                    |
 | `getStreams(request)`                   | `Promise<MediaSource[]>`               | Gets streams from **all active providers** for the given media. Returns everything in one list.                             |
 | `getSubtitles(request)`                 | `Promise<SubtitleSource[]>`            | Gets subtitles from **all active providers** for the given media.                                                           |
 | `getStreamsByScheme(scheme, request)`   | `Promise<MediaSource[]>`               | Gets streams from **one specific provider** by its scheme.                                                                  |
@@ -68,7 +68,7 @@ The main orchestrator — creates, manages, and queries provider plugins.
 
 ### `ProviderManagerConfig`
 
-The configuration object passed to `ScrapePluginManager.create(config)`.
+The configuration object passed to `GrabitManager.create(config)`.
 
 | Field                                            | Type             | Required | Default     | Description                                                                                                                                                                    |
 | ------------------------------------------------ | ---------------- | -------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -119,7 +119,7 @@ Fetches providers from a GitHub repository. Works in Node 18+, browsers, and Rea
 
 ```typescript
 // React Native example
-const manager = await ScrapePluginManager.create({
+const manager = await GrabitManager.create({
 	source: {
 		type: "github",
 		url: "https://github.com/username/providers-repo",
@@ -149,7 +149,7 @@ Providers are passed as pre-imported modules. Works in any JS runtime.
 ```typescript
 import myProvider from "./providers/my-provider";
 
-const manager = await ScrapePluginManager.create({
+const manager = await GrabitManager.create({
 	source: {
 		type: "registry",
 		name: "my-providers",
@@ -172,7 +172,7 @@ Auto-imports providers from a manifest using a user-supplied resolve function. W
 
 ```typescript
 // Node.js
-const manager = await ScrapePluginManager.create({
+const manager = await GrabitManager.create({
 	source: {
 		type: "local",
 		manifest: require("./manifest.json"),

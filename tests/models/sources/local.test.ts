@@ -1,5 +1,5 @@
 /**
- * Integration-style tests that exercise `ScrapePluginManager.create()` when the
+ * Integration-style tests that exercise `GrabitManager.create()` when the
  * source is a **local file-system** (LocalSource).
  *
  * The `resolve` callback is fully controlled by the test — no real `require()`
@@ -11,7 +11,7 @@
  *  - metrics tracking on local providers
  */
 
-import { ScrapePluginManager } from "../../../src/controllers/manager";
+import { GrabitManager } from "../../../src/controllers/manager";
 import { CACHE } from "../../../src/services/cache";
 
 jest.mock("../../../src/services/tmdb", () => ({
@@ -34,9 +34,9 @@ import { Provider } from "../../../src/models/provider";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function resetManager(): void {
-	(ScrapePluginManager as any).instance = undefined;
-	(ScrapePluginManager as any).context = undefined;
-	(ScrapePluginManager as any).logger = undefined;
+	(GrabitManager as any).instance = undefined;
+	(GrabitManager as any).context = undefined;
+	(GrabitManager as any).logger = undefined;
 	CACHE.clear();
 }
 
@@ -225,7 +225,7 @@ function buildLocalConfig(modules: Record<string, ProviderModule>, extras: Parti
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe("ScrapePluginManager › Local source", () => {
+describe("GrabitManager › Local source", () => {
 	beforeEach(() => resetManager());
 	afterEach(() => resetManager());
 
@@ -233,8 +233,8 @@ describe("ScrapePluginManager › Local source", () => {
 		const streamMod = createLocalStreamModule();
 		const config = buildLocalConfig({ "local-stream": streamMod });
 
-		const manager = await ScrapePluginManager.create(config);
-		expect(manager).toBeInstanceOf(ScrapePluginManager);
+		const manager = await GrabitManager.create(config);
+		expect(manager).toBeInstanceOf(GrabitManager);
 	});
 
 	it("should call the resolve function for each provider in the manifest", async () => {
@@ -242,7 +242,7 @@ describe("ScrapePluginManager › Local source", () => {
 		const subMod = createLocalSubtitleModule();
 		const config = buildLocalConfig({ "local-stream": streamMod, "local-subtitle": subMod });
 
-		await ScrapePluginManager.create(config);
+		await GrabitManager.create(config);
 
 		const resolve = (config.source as any).resolve as jest.Mock;
 		expect(resolve).toHaveBeenCalledTimes(2);
@@ -256,7 +256,7 @@ describe("ScrapePluginManager › Local source", () => {
 		const streamMod = createLocalStreamModule();
 		const config = buildLocalConfig({ "local-stream": streamMod });
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		const streams = await manager.getStreams(MOVIE_REQUEST);
 
 		expect(streams.length).toBe(1);
@@ -268,7 +268,7 @@ describe("ScrapePluginManager › Local source", () => {
 		const subMod = createLocalSubtitleModule();
 		const config = buildLocalConfig({ "local-subtitle": subMod });
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		const subtitles = await manager.getSubtitles(MOVIE_REQUEST);
 
 		expect(subtitles.length).toBe(1);
@@ -280,7 +280,7 @@ describe("ScrapePluginManager › Local source", () => {
 		const subMod = createLocalSubtitleModule();
 		const config = buildLocalConfig({ "local-stream": streamMod, "local-subtitle": subMod });
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 
 		const streams = await manager.getStreams(MOVIE_REQUEST);
 		expect(streams.length).toBe(1);
@@ -293,7 +293,7 @@ describe("ScrapePluginManager › Local source", () => {
 		const streamMod = createLocalStreamModule();
 		const config = buildLocalConfig({ "local-stream": streamMod });
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		const streams = await manager.getStreamsByScheme("local-stream", MOVIE_REQUEST);
 
 		expect(streams.length).toBe(1);
@@ -303,7 +303,7 @@ describe("ScrapePluginManager › Local source", () => {
 		const subMod = createLocalSubtitleModule();
 		const config = buildLocalConfig({ "local-subtitle": subMod });
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		const subtitles = await manager.getSubtitlesByScheme("local-subtitle", MOVIE_REQUEST);
 
 		expect(subtitles.length).toBe(1);
@@ -313,7 +313,7 @@ describe("ScrapePluginManager › Local source", () => {
 		const streamMod = createLocalStreamModule();
 		const config = buildLocalConfig({ "local-stream": streamMod });
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		const streams = await manager.getStreamsByScheme("nonexistent", MOVIE_REQUEST);
 
 		expect(streams).toEqual([]);
@@ -323,7 +323,7 @@ describe("ScrapePluginManager › Local source", () => {
 		const streamMod = createLocalStreamModule();
 		const config = buildLocalConfig({ "local-stream": streamMod });
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		await manager.getStreams(MOVIE_REQUEST);
 
 		const metrics = manager.getMetrics();
@@ -339,7 +339,7 @@ describe("ScrapePluginManager › Local source", () => {
 		});
 		const config = buildLocalConfig({ "local-stream": failMod });
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		const streams = await manager.getStreams(MOVIE_REQUEST);
 
 		expect(streams).toEqual([]);
@@ -353,7 +353,7 @@ describe("ScrapePluginManager › Local source", () => {
 		const streamMod = createLocalStreamModule({ supportedMediaTypes: ["movie", "serie"] });
 		const config = buildLocalConfig({ "local-stream": streamMod });
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		const streams = await manager.getStreams(SERIE_REQUEST);
 
 		expect(streams.length).toBe(1);
@@ -363,7 +363,7 @@ describe("ScrapePluginManager › Local source", () => {
 		const movieOnlyMod = createLocalStreamModule({ supportedMediaTypes: ["movie"] });
 		const config = buildLocalConfig({ "local-stream": movieOnlyMod });
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		const streams = await manager.getStreams(SERIE_REQUEST);
 
 		expect(streams).toEqual([]);
@@ -384,7 +384,7 @@ describe("ScrapePluginManager › Local source", () => {
 			tmdbApiKeys: []
 		};
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		const streams = await manager.getStreams(MOVIE_REQUEST);
 		expect(streams.length).toBe(1);
 	});
@@ -393,7 +393,7 @@ describe("ScrapePluginManager › Local source", () => {
 		const streamMod = createLocalStreamModule();
 		const config = buildLocalConfig({ "local-stream": streamMod });
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		await manager.getStreams(MOVIE_REQUEST);
 
 		const report = manager.getMetricsReport();

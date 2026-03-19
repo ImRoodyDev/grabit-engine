@@ -481,7 +481,7 @@ async function loadProviderModule(scheme, srcDir, noBundle, manifestDir) {
 
 /**
  * Load the provider context from the grabit-engine package dist.
- * This mirrors what ScrapePluginManager.createContext() does internally.
+ * This mirrors what GrabitManager.createContext() does internally.
  */
 async function loadContext(scheme) {
 	const distCore = path.join(PKG_ROOT, "dist", "esm", "src", "core");

@@ -1,5 +1,5 @@
 /**
- * Integration-style tests that exercise `ScrapePluginManager.create()` when the
+ * Integration-style tests that exercise `GrabitManager.create()` when the
  * source is a **GitHub repository**.
  *
  * The GitHub network calls (`appFetch`) are fully mocked so no real HTTP traffic
@@ -10,7 +10,7 @@
  *  - error paths (invalid manifest, missing modules, network failures)
  */
 
-import { ScrapePluginManager } from "../../../src/controllers/manager";
+import { GrabitManager } from "../../../src/controllers/manager";
 import { CACHE } from "../../../src/services/cache";
 import { ProviderManagerConfig, ProviderModule, ProvidersManifest, MediaSource, SubtitleSource, ScrapeRequester } from "../../../src/types";
 import { Provider } from "../../../src/models/provider";
@@ -25,9 +25,9 @@ jest.mock("../../../src/services/tmdb", () => ({
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function resetManager(): void {
-	(ScrapePluginManager as any).instance = undefined;
-	(ScrapePluginManager as any).context = undefined;
-	(ScrapePluginManager as any).logger = undefined;
+	(GrabitManager as any).instance = undefined;
+	(GrabitManager as any).context = undefined;
+	(GrabitManager as any).logger = undefined;
 	CACHE.clear();
 }
 
@@ -217,7 +217,7 @@ jest.mock("../../../src/services/fetcher", () => {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe("ScrapePluginManager › GitHub source", () => {
+describe("GrabitManager › GitHub source", () => {
 	beforeEach(() => resetManager());
 
 	it("should initialise from a GitHub source with a custom moduleResolver", async () => {
@@ -235,8 +235,8 @@ describe("ScrapePluginManager › GitHub source", () => {
 			debug: false
 		};
 
-		const manager = await ScrapePluginManager.create(config);
-		expect(manager).toBeInstanceOf(ScrapePluginManager);
+		const manager = await GrabitManager.create(config);
+		expect(manager).toBeInstanceOf(GrabitManager);
 		// moduleResolver should have been called for each provider in the manifest
 		expect(moduleResolver).toHaveBeenCalledWith("example-provider", expect.any(String));
 	});
@@ -256,7 +256,7 @@ describe("ScrapePluginManager › GitHub source", () => {
 			debug: false
 		};
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		const streams = await manager.getStreams(MOVIE_REQUEST);
 		expect(streams.length).toBeGreaterThan(0);
 		expect(streams[0].fileName).toBe("inception.mp4");
@@ -276,8 +276,8 @@ describe("ScrapePluginManager › GitHub source", () => {
 			debug: false
 		};
 
-		const manager = await ScrapePluginManager.create(config);
-		expect(manager).toBeInstanceOf(ScrapePluginManager);
+		const manager = await GrabitManager.create(config);
+		expect(manager).toBeInstanceOf(GrabitManager);
 	});
 
 	it("should handle a provider whose module source cannot be fetched", async () => {
@@ -296,7 +296,7 @@ describe("ScrapePluginManager › GitHub source", () => {
 		};
 
 		// Should not throw — modules that fail to load are skipped
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		const streams = await manager.getStreams(MOVIE_REQUEST);
 		expect(streams).toEqual([]);
 	});
@@ -316,7 +316,7 @@ describe("ScrapePluginManager › GitHub source", () => {
 			debug: false
 		};
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		const streams = await manager.getStreamsByScheme("example-provider", MOVIE_REQUEST);
 		expect(streams.length).toBeGreaterThan(0);
 		expect(streams[0].scheme).toBe("example-provider");
@@ -337,7 +337,7 @@ describe("ScrapePluginManager › GitHub source", () => {
 			debug: false
 		};
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		await manager.getStreams(MOVIE_REQUEST);
 
 		const metrics = manager.getMetrics();
@@ -362,7 +362,7 @@ describe("ScrapePluginManager › GitHub source", () => {
 			debug: false
 		};
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		await manager.getStreams(MOVIE_REQUEST);
 
 		const report = manager.getMetricsReport();
@@ -372,7 +372,7 @@ describe("ScrapePluginManager › GitHub source", () => {
 	});
 });
 
-describe("ScrapePluginManager › GitHub source with subtitles", () => {
+describe("GrabitManager › GitHub source with subtitles", () => {
 	beforeEach(() => resetManager());
 
 	it("should initialise and return subtitles from a GitHub-sourced subtitle provider", async () => {
@@ -422,7 +422,7 @@ describe("ScrapePluginManager › GitHub source with subtitles", () => {
 			debug: false
 		};
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		const subtitles = await manager.getSubtitles(MOVIE_REQUEST);
 		expect(subtitles.length).toBeGreaterThan(0);
 		expect(subtitles[0].language).toBe("en");
@@ -431,7 +431,7 @@ describe("ScrapePluginManager › GitHub source with subtitles", () => {
 
 // ─── Tests: GitHub source with rootDir ────────────────────────────────────────
 
-describe("ScrapePluginManager › GitHub source with rootDir", () => {
+describe("GrabitManager › GitHub source with rootDir", () => {
 	beforeEach(() => resetManager());
 
 	it("should fetch manifest and modules from a custom rootDir", async () => {
@@ -482,8 +482,8 @@ describe("ScrapePluginManager › GitHub source with rootDir", () => {
 			debug: false
 		};
 
-		const manager = await ScrapePluginManager.create(config);
-		expect(manager).toBeInstanceOf(ScrapePluginManager);
+		const manager = await GrabitManager.create(config);
+		expect(manager).toBeInstanceOf(GrabitManager);
 		expect(moduleResolver).toHaveBeenCalledWith("test-provider", expect.any(String));
 	});
 
@@ -548,8 +548,8 @@ describe("ScrapePluginManager › GitHub source with rootDir", () => {
 		};
 
 		// Should not throw — modules that fail to load are skipped
-		const manager = await ScrapePluginManager.create(config);
-		expect(manager).toBeInstanceOf(ScrapePluginManager);
+		const manager = await GrabitManager.create(config);
+		expect(manager).toBeInstanceOf(GrabitManager);
 		// Only good-provider should have been resolved
 		expect(moduleResolver).toHaveBeenCalledWith("good-provider", expect.any(String));
 		expect(moduleResolver).not.toHaveBeenCalledWith("missing-provider", expect.any(String));
@@ -619,8 +619,8 @@ describe("ScrapePluginManager › GitHub source with rootDir", () => {
 		};
 
 		// Should not throw — the failing moduleResolver is caught per-provider
-		const manager = await ScrapePluginManager.create(config);
-		expect(manager).toBeInstanceOf(ScrapePluginManager);
+		const manager = await GrabitManager.create(config);
+		expect(manager).toBeInstanceOf(GrabitManager);
 	});
 
 	it("should handle all provider fetches failing gracefully", async () => {
@@ -682,8 +682,8 @@ describe("ScrapePluginManager › GitHub source with rootDir", () => {
 		};
 
 		// Should initialise without throwing — all providers null but manager is valid
-		const manager = await ScrapePluginManager.create(config);
-		expect(manager).toBeInstanceOf(ScrapePluginManager);
+		const manager = await GrabitManager.create(config);
+		expect(manager).toBeInstanceOf(GrabitManager);
 		// moduleResolver should never have been called because fetches all failed
 		expect(moduleResolver).not.toHaveBeenCalled();
 		// getStreams should return empty since no providers loaded

@@ -13,7 +13,7 @@ export type ScrapeType = "media" | "subtitle" | "both";
  * Configuration accepted by the `useSources` hook.
  */
 export interface UseSourcesConfig {
-	/** Configuration used to create/reuse the `ScrapePluginManager` singleton. */
+	/** Configuration used to create/reuse the `GrabitManager` singleton. */
 	managerConfig: ProviderManagerConfig;
 
 	/**

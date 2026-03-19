@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ScrapePluginManager } from "../controllers/manager.ts";
+import type { GrabitManager } from "../controllers/manager.ts";
 import type { RawScrapeRequester } from "../types/input/Requester.ts";
 import type { MediaSource, SubtitleSource } from "../types/output/MediaSources.ts";
 import type { ScrapeType } from "../types/hooks/useSources.ts";
@@ -18,7 +18,7 @@ function mergeSources<T extends { scheme: string; providerName: string; fileName
 }
 
 export interface UseScraperOptions {
-	manager: ScrapePluginManager | null;
+	manager: GrabitManager | null;
 	type: ScrapeType;
 	continuous: boolean;
 }

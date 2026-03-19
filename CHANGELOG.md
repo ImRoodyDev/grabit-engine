@@ -23,6 +23,7 @@ The format is based on Keep a Changelog.
 
 ### Changed
 
+- Changed manager class name from `ScrapePluginManager` to `GrabitManager` (#sym:GrabitManager).
 - Changed `ctx.puppeteer.launch()` to lease tabs from the manager-owned browser pool. Calling the returned `browser.close()` releases the leased tab; real browser processes are closed when they age out of the pool or when the manager is destroyed.
 - Removed `browsingOptions.closeOnComplete` option — the page now always stays open after `puppeteer.launch()` resolves. Providers must call `browser.close()` when done to release the tab back to the pool.
 - Fixed source language sorting: results are now always sorted with the requester's target language first, regardless of whether `validateSources` is enabled.

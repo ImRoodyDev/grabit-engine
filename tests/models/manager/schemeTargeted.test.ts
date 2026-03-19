@@ -1,4 +1,4 @@
-import { ScrapePluginManager } from "../../../src/controllers/manager";
+import { GrabitManager } from "../../../src/controllers/manager";
 import { resetManager, GRAB_REQUEST, createMockModule, createMockSubtitleModule, createRegistryConfig, mockMediaSource, mockSubtitleSource } from "./helpers";
 
 jest.mock("../../../src/services/tmdb", () => ({
@@ -10,7 +10,7 @@ jest.mock("../../../src/services/tmdb", () => ({
 
 afterEach(() => resetManager());
 
-describe("ScrapePluginManager › getStreamsByScheme", () => {
+describe("GrabitManager › getStreamsByScheme", () => {
 	beforeEach(() => resetManager());
 
 	it("should return streams from the targeted scheme only", async () => {
@@ -25,7 +25,7 @@ describe("ScrapePluginManager › getStreamsByScheme", () => {
 			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "B" })])
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ alpha: modA, beta: modB }));
+		const manager = await GrabitManager.create(createRegistryConfig({ alpha: modA, beta: modB }));
 		const results = await manager.getStreamsByScheme("alpha", GRAB_REQUEST);
 
 		expect(results).toHaveLength(1);
@@ -36,7 +36,7 @@ describe("ScrapePluginManager › getStreamsByScheme", () => {
 
 	it("should return empty array for an unknown scheme", async () => {
 		const mod = createMockModule({ name: "known" });
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ known: mod }));
+		const manager = await GrabitManager.create(createRegistryConfig({ known: mod }));
 
 		const results = await manager.getStreamsByScheme("unknown", GRAB_REQUEST);
 		expect(results).toEqual([]);
@@ -49,7 +49,7 @@ describe("ScrapePluginManager › getStreamsByScheme", () => {
 			active: false,
 			getStreams: jest.fn().mockResolvedValue([mockMediaSource()])
 		});
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ deactivated: mod }));
+		const manager = await GrabitManager.create(createRegistryConfig({ deactivated: mod }));
 
 		const results = await manager.getStreamsByScheme("deactivated", GRAB_REQUEST);
 		expect(results).toEqual([]);
@@ -62,7 +62,7 @@ describe("ScrapePluginManager › getStreamsByScheme", () => {
 			name: "sub-only",
 			getStreams: undefined
 		});
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ "sub-only": subtitleOnly }));
+		const manager = await GrabitManager.create(createRegistryConfig({ "sub-only": subtitleOnly }));
 
 		const results = await manager.getStreamsByScheme("sub-only", GRAB_REQUEST);
 		expect(results).toEqual([]);
@@ -74,7 +74,7 @@ describe("ScrapePluginManager › getStreamsByScheme", () => {
 			getStreams: jest.fn().mockRejectedValue(new Error("explosion"))
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ boom: failing }));
+		const manager = await GrabitManager.create(createRegistryConfig({ boom: failing }));
 		const results = await manager.getStreamsByScheme("boom", GRAB_REQUEST);
 
 		expect(results).toEqual([]);
@@ -87,7 +87,7 @@ describe("ScrapePluginManager › getStreamsByScheme", () => {
 			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "metric-scheme" })])
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ "metric-scheme": mod }, { scrapeConfig: { maxAttempts: 1 } }));
+		const manager = await GrabitManager.create(createRegistryConfig({ "metric-scheme": mod }, { scrapeConfig: { maxAttempts: 1 } }));
 
 		await manager.getStreamsByScheme("metric-scheme", GRAB_REQUEST);
 		await manager.getStreamsByScheme("metric-scheme", GRAB_REQUEST);
@@ -98,7 +98,7 @@ describe("ScrapePluginManager › getStreamsByScheme", () => {
 	});
 });
 
-describe("ScrapePluginManager › getSubtitlesByScheme", () => {
+describe("GrabitManager › getSubtitlesByScheme", () => {
 	beforeEach(() => resetManager());
 
 	it("should return subtitles from the targeted scheme only", async () => {
@@ -113,7 +113,7 @@ describe("ScrapePluginManager › getSubtitlesByScheme", () => {
 			getSubtitles: jest.fn().mockResolvedValue([mockSubtitleSource({ providerName: "sub-B" })])
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ "sub-a": subA, "sub-b": subB }));
+		const manager = await GrabitManager.create(createRegistryConfig({ "sub-a": subA, "sub-b": subB }));
 		const results = await manager.getSubtitlesByScheme("sub-a", GRAB_REQUEST);
 
 		expect(results).toHaveLength(1);
@@ -123,7 +123,7 @@ describe("ScrapePluginManager › getSubtitlesByScheme", () => {
 
 	it("should return empty array for an unknown scheme", async () => {
 		const sub = createMockSubtitleModule({ scheme: "sub-known", name: "sub-known" });
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ "sub-known": sub }));
+		const manager = await GrabitManager.create(createRegistryConfig({ "sub-known": sub }));
 
 		const results = await manager.getSubtitlesByScheme("nope", GRAB_REQUEST);
 		expect(results).toEqual([]);
@@ -131,7 +131,7 @@ describe("ScrapePluginManager › getSubtitlesByScheme", () => {
 
 	it("should return empty array when the scheme's provider has no getSubtitles", async () => {
 		const mediaOnly = createMockModule({ scheme: "media-only", name: "media-only" });
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ "media-only": mediaOnly }));
+		const manager = await GrabitManager.create(createRegistryConfig({ "media-only": mediaOnly }));
 
 		const results = await manager.getSubtitlesByScheme("media-only", GRAB_REQUEST);
 		expect(results).toEqual([]);
@@ -144,7 +144,7 @@ describe("ScrapePluginManager › getSubtitlesByScheme", () => {
 			active: false,
 			getSubtitles: jest.fn().mockResolvedValue([mockSubtitleSource()])
 		});
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ "inactive-sub": sub }));
+		const manager = await GrabitManager.create(createRegistryConfig({ "inactive-sub": sub }));
 
 		const results = await manager.getSubtitlesByScheme("inactive-sub", GRAB_REQUEST);
 		expect(results).toEqual([]);

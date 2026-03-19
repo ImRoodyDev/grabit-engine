@@ -1,4 +1,4 @@
-import { ScrapePluginManager } from "../../../src/controllers/manager";
+import { GrabitManager } from "../../../src/controllers/manager";
 import { resetManager, GRAB_REQUEST, createMockModule, createMockSubtitleModule, createRegistryConfig, mockMediaSource } from "./helpers";
 
 jest.mock("../../../src/services/tmdb", () => ({
@@ -10,7 +10,7 @@ jest.mock("../../../src/services/tmdb", () => ({
 
 afterEach(() => resetManager());
 
-describe("ScrapePluginManager › provider filtering", () => {
+describe("GrabitManager › provider filtering", () => {
 	beforeEach(() => resetManager());
 
 	it("should prefer providers matching the target language", async () => {
@@ -27,7 +27,7 @@ describe("ScrapePluginManager › provider filtering", () => {
 			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "fr" })])
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ en, fr }));
+		const manager = await GrabitManager.create(createRegistryConfig({ en, fr }));
 		const results = await manager.getStreams({ ...GRAB_REQUEST, targetLanguageISO: "en" });
 
 		expect(results).toHaveLength(2);
@@ -45,7 +45,7 @@ describe("ScrapePluginManager › provider filtering", () => {
 			getStreams: undefined
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ a: media, b: subtitle }));
+		const manager = await GrabitManager.create(createRegistryConfig({ a: media, b: subtitle }));
 		const results = await manager.getStreams(GRAB_REQUEST);
 
 		expect(results).toHaveLength(1);
@@ -60,7 +60,7 @@ describe("ScrapePluginManager › provider filtering", () => {
 			supportedMediaTypes: ["movie"]
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ a: media, b: subtitle }));
+		const manager = await GrabitManager.create(createRegistryConfig({ a: media, b: subtitle }));
 		const results = await manager.getSubtitles(GRAB_REQUEST);
 
 		expect(results).toHaveLength(1);
@@ -76,7 +76,7 @@ describe("ScrapePluginManager › provider filtering", () => {
 			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "node-only" })])
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ n: nodeOnly }));
+		const manager = await GrabitManager.create(createRegistryConfig({ n: nodeOnly }));
 		const results = await manager.getStreams(GRAB_REQUEST);
 
 		// In Node env both "node" and "universal" providers are included
@@ -90,7 +90,7 @@ describe("ScrapePluginManager › provider filtering", () => {
 			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "multi-type" })])
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ m: multi }));
+		const manager = await GrabitManager.create(createRegistryConfig({ m: multi }));
 
 		const movieResults = await manager.getStreams(GRAB_REQUEST);
 		expect(movieResults).toHaveLength(1);

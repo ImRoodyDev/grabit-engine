@@ -7,7 +7,7 @@ import { DebugLogger } from "../../utils/logger.ts";
 /**
  * Provider context passed to provider handlers, containing media information and utilities
  * This will be passed to all provider index entry for scraping
- * Note: This context is created in the ScrapePluginManager and shared across all providers, allowing them to utilize the same utilities and maintain consistency in how media information is accessed and processed during scraping.
+ * Note: This context is created in the GrabitManager and shared across all providers, allowing them to utilize the same utilities and maintain consistency in how media information is accessed and processed during scraping.
  * The context includes:
  * - `cheerio`: The Cheerio library for parsing HTML, which providers can use to manipulate and extract data from HTML content when scraping.
  * - `xhr`: The XHR utility for making HTTP requests, which provides methods for fetching data from provider endpoints, handling responses, and implementing retry and timeout mechanisms.

@@ -13,33 +13,33 @@ import { ModuleManager, ProviderHealthReport, ProviderMetrics } from "./module.t
 import { TMDB } from "../services/tmdb.ts";
 
 /**
- * ScrapePluginManager is the main class responsible
+ * GrabitManager is the main class responsible
  * for managing provider modules, including loading, caching, refreshing, and health monitoring.
  */
-export class ScrapePluginManager extends ModuleManager implements IProviderManagerWorkers {
+export class GrabitManager extends ModuleManager implements IProviderManagerWorkers {
 	private static logger: DebugLogger;
 	private static context: ProviderContext;
-	private static instance: ScrapePluginManager;
+	private static instance: GrabitManager;
 	private limiters: LimitFunction[] = [];
 
 	private constructor(config: ProviderManagerConfig) {
 		super(config);
 		Logger.enableDebugging(config.debug ?? isDevelopment());
-		ScrapePluginManager.logger = new DebugLogger(config.debug ?? isDevelopment(), "ScrapePluginManager");
-		ScrapePluginManager.context = ScrapePluginManager.createContext(config);
+		GrabitManager.logger = new DebugLogger(config.debug ?? isDevelopment(), "GrabitManager");
+		GrabitManager.context = GrabitManager.createContext(config);
 
 		// Initialize the TMDB API with the provided keys and optional cache TTL
 		TMDB.init(config.tmdbApiKeys, { cacheTTL: config.cache?.TMDB_TTL });
 	}
 
 	/** Creates a new provider manager singleton instance */
-	public static async create(config: ProviderManagerConfig): Promise<ScrapePluginManager> {
-		if (ScrapePluginManager.instance) {
-			ScrapePluginManager.logger.warn("ScrapePluginManager instance already exists. Returning existing instance.");
-			return ScrapePluginManager.instance;
+	public static async create(config: ProviderManagerConfig): Promise<GrabitManager> {
+		if (GrabitManager.instance) {
+			GrabitManager.logger.warn("GrabitManager instance already exists. Returning existing instance.");
+			return GrabitManager.instance;
 		}
-		const manager = new ScrapePluginManager(config);
-		ScrapePluginManager.instance = manager;
+		const manager = new GrabitManager(config);
+		GrabitManager.instance = manager;
 
 		// Check if the source is cached
 		const cached = isSourceCached(config.source);
@@ -159,7 +159,7 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 							providersWithResults++;
 							onPartialResult?.(result);
 						} else {
-							ScrapePluginManager.logger.debug(
+							GrabitManager.logger.debug(
 								`Provider "${module.provider.config.scheme}" completed without ${Array.isArray(result) ? "results" : "a valid result payload"}.`
 							);
 						}
@@ -183,7 +183,7 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 		const timeoutPromise = new Promise<T[][]>((resolve) => {
 			timeoutId = setTimeout(() => {
 				limit.clearQueue();
-				ScrapePluginManager.logger.warn(
+				GrabitManager.logger.warn(
 					`Operation timed out after ${operationTimeout}ms — returning ${providersWithResults} provider result set(s) collected so far`
 				);
 				resolve(collected);
@@ -193,9 +193,7 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 		const results = await Promise.race([operationPromise, timeoutPromise]);
 		clearTimeout(timeoutId); // Prevent the timer from firing after the operation completed
 		const totalSources = results.reduce((count, providerResults) => count + providerResults.length, 0);
-		ScrapePluginManager.logger.info(
-			`Operation completed: ${providersWithResults}/${modules.length} provider(s) returned results (${totalSources} total item(s))`
-		);
+		GrabitManager.logger.info(`Operation completed: ${providersWithResults}/${modules.length} provider(s) returned results (${totalSources} total item(s))`);
 
 		// Remove the current limiter from the manager's list to prevent memory leaks
 		this.limiters = this.limiters.filter((limiter) => limiter !== limit);
@@ -223,7 +221,7 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 
 		const providers = this.getProvidersByRequest(providerType, requester);
 		if (providers.length === 0) {
-			ScrapePluginManager.logger.warn(`No providers found that support ${providerType} type "${requester.media.type}" for the given request`);
+			GrabitManager.logger.warn(`No providers found that support ${providerType} type "${requester.media.type}" for the given request`);
 			return [];
 		}
 
@@ -244,11 +242,11 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 
 			// Build a per-invocation copy to avoid mutating the shared requester across concurrent operations
 			const localRequester: ScrapeRequester = { ...requester, media, targetLanguageISO: moduleLang };
-			ScrapePluginManager.logger.debug(`[${formatTimestamp()}] Dispatching ${providerType} scrape to provider "${module.provider.config.scheme}"`, {
+			GrabitManager.logger.debug(`[${formatTimestamp()}] Dispatching ${providerType} scrape to provider "${module.provider.config.scheme}"`, {
 				targetLanguageISO: localRequester.targetLanguageISO,
 				media: localRequester.media
 			});
-			return await worker(module, localRequester, ScrapePluginManager.context);
+			return await worker(module, localRequester, GrabitManager.context);
 		};
 
 		const results = await this.createOperation(providers, fn, operationOptions);
@@ -266,16 +264,16 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 	}
 
 	/** Tear down the manager: stop auto-updates, cancel queued operations, and release the singleton.
-	 *  After calling `destroy()` a new instance can be created via `ScrapePluginManager.create()`.
+	 *  After calling `destroy()` a new instance can be created via `GrabitManager.create()`.
 	 */
 	public destroy() {
 		this.stopAutoUpdateService();
 		this.closeOperations();
 		CACHE.stopAutoCleanup();
 		shutdownPuppeteerPool();
-		ScrapePluginManager.instance = undefined!;
-		ScrapePluginManager.context = undefined!;
-		ScrapePluginManager.logger = undefined!;
+		GrabitManager.instance = undefined!;
+		GrabitManager.context = undefined!;
+		GrabitManager.logger = undefined!;
 	}
 
 	/** Returns a read-only snapshot of the current health metrics for all tracked modules */
@@ -371,16 +369,16 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 
 		const module = this.moduleByScheme(scheme);
 		if (!module) {
-			ScrapePluginManager.logger.warn(`No active provider found for scheme "${scheme}"`);
+			GrabitManager.logger.warn(`No active provider found for scheme "${scheme}"`);
 			return [];
 		}
 		if (!module.workers.getStreams) {
-			ScrapePluginManager.logger.warn(`Provider "${module.meta.name}" (scheme "${scheme}") does not implement getStreams`);
+			GrabitManager.logger.warn(`Provider "${module.meta.name}" (scheme "${scheme}") does not implement getStreams`);
 			return [];
 		}
 
 		const fn = async (mod: ProviderModule, _limiter: LimitFunction) => {
-			return await mod.workers.getStreams!(requester, ScrapePluginManager.context);
+			return await mod.workers.getStreams!(requester, GrabitManager.context);
 		};
 		const results = await this.createOperation([module], fn);
 		return sortByTargetLanguage(results, requester.targetLanguageISO);
@@ -391,16 +389,16 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 
 		const module = this.moduleByScheme(scheme);
 		if (!module) {
-			ScrapePluginManager.logger.warn(`No active provider found for scheme "${scheme}"`);
+			GrabitManager.logger.warn(`No active provider found for scheme "${scheme}"`);
 			return [];
 		}
 		if (!module.workers.getSubtitles) {
-			ScrapePluginManager.logger.warn(`Provider "${module.meta.name}" (scheme "${scheme}") does not implement getSubtitles`);
+			GrabitManager.logger.warn(`Provider "${module.meta.name}" (scheme "${scheme}") does not implement getSubtitles`);
 			return [];
 		}
 
 		const fn = async (mod: ProviderModule, _limiter: LimitFunction) => {
-			return await mod.workers.getSubtitles!(requester, ScrapePluginManager.context);
+			return await mod.workers.getSubtitles!(requester, GrabitManager.context);
 		};
 		const results = await this.createOperation([module], fn);
 		return sortByTargetLanguage(results, requester.targetLanguageISO);

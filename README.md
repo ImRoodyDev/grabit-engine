@@ -110,10 +110,10 @@ If your providers use `Crypto` and you load them in React Native, install `react
 ## 🚀 Quick Start
 
 ```typescript
-import { ScrapePluginManager } from "grabit-engine";
+import { GrabitManager } from "grabit-engine";
 
 // Create the manager with a registry source (simplest approach)
-const manager = await ScrapePluginManager.create({
+const manager = await GrabitManager.create({
 	source: {
 		type: "registry",
 		name: "my-providers",
@@ -185,7 +185,7 @@ The manager can load plugins from **three places**:
 ### GitHub Source
 
 ```typescript
-const manager = await ScrapePluginManager.create({
+const manager = await GrabitManager.create({
 	source: {
 		type: "github",
 		url: "https://github.com/your-org/your-providers",
@@ -258,7 +258,7 @@ your-providers/              # rootDir: "dist"
 ### Local Source
 
 ```typescript
-const manager = await ScrapePluginManager.create({
+const manager = await GrabitManager.create({
 	source: {
 		type: "local",
 		manifest: require("./manifest.json"),
@@ -273,7 +273,7 @@ const manager = await ScrapePluginManager.create({
 ```typescript
 import exampleProvider from "./providers/example-provider";
 
-const manager = await ScrapePluginManager.create({
+const manager = await GrabitManager.create({
 	source: {
 		type: "registry",
 		name: "my-providers",
@@ -655,7 +655,7 @@ When a provider uses Puppeteer, `test-provider` disables headless mode automatic
 
 > Full API documentation has been moved to **[API_REFERENCE.md](API_REFERENCE.md)** for better readability.
 >
-> It covers: `ScrapePluginManager`, `ScrapeRequester`, `ProviderModuleManifest`, `ProviderMetrics` & `ProviderHealthReport`, `ProviderContext`, `ProviderFetchOptions`, Media Input Types, Output Types, Provider Configuration, the `Provider` class, Error Classes, Utility Functions, and Services.
+> It covers: `GrabitManager`, `ScrapeRequester`, `ProviderModuleManifest`, `ProviderMetrics` & `ProviderHealthReport`, `ProviderContext`, `ProviderFetchOptions`, Media Input Types, Output Types, Provider Configuration, the `Provider` class, Error Classes, Utility Functions, and Services.
 
 ---
 
@@ -855,9 +855,9 @@ Providers that fail too often (more than `errorThresholdRate` after `minOperatio
 <summary><strong>React Native with GitHub source</strong></summary>
 
 ```typescript
-import { ScrapePluginManager } from "grabit-engine";
+import { GrabitManager } from "grabit-engine";
 
-const manager = await ScrapePluginManager.create({
+const manager = await GrabitManager.create({
 	source: {
 		type: "github",
 		url: "your-org/providers-repo",
@@ -898,10 +898,10 @@ const streams = await manager.getStreams({
 <summary><strong>Node.js with local providers</strong></summary>
 
 ```typescript
-import { ScrapePluginManager } from "grabit-engine";
+import { GrabitManager } from "grabit-engine";
 import manifest from "./providers/manifest.json";
 
-const manager = await ScrapePluginManager.create({
+const manager = await GrabitManager.create({
 	source: {
 		type: "local",
 		manifest,
@@ -1022,7 +1022,7 @@ stopContinuousScraping();
 
 | Property        | Type                              | Default  | Description                                                           |
 | --------------- | --------------------------------- | -------- | --------------------------------------------------------------------- |
-| `managerConfig` | `ProviderManagerConfig`           | —        | Configuration for the `ScrapePluginManager` singleton.                |
+| `managerConfig` | `ProviderManagerConfig`           | —        | Configuration for the `GrabitManager` singleton.                      |
 | `continuous`    | `boolean`                         | `false`  | Stream results per-provider as they arrive (ignores `successQuorum`). |
 | `type`          | `"media" \| "subtitle" \| "both"` | `"both"` | Which source category to fetch.                                       |
 

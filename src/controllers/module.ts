@@ -73,7 +73,7 @@ export abstract class ModuleManager {
 	}
 
 	/** Initialize provider modules based on the configuration source.
-	 * This method is responsible for initializing provider modules based on the configuration provided to the ScrapePluginManager. It supports various sources such as GitHub, npm registry, or local file system. The method will utilize the provided module resolver to dynamically import provider modules and store them in the manager for later use when handling media requests.
+	 * This method is responsible for initializing provider modules based on the configuration provided to the GrabitManager. It supports various sources such as GitHub, npm registry, or local file system. The method will utilize the provided module resolver to dynamically import provider modules and store them in the manager for later use when handling media requests.
 	 */
 	protected async initializeModules() {
 		try {

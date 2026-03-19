@@ -5,7 +5,7 @@ import type { UseSourcesConfig, UseSourcesReturn } from "../types/hooks/useSourc
 export type { UseSourcesConfig, UseSourcesReturn, ScrapeType } from "../types/hooks/useSources.ts";
 
 /**
- * React hook that wraps `ScrapePluginManager` for declarative
+ * React hook that wraps `GrabitManager` for declarative
  * media & subtitle scraping inside React / React Native components.
  *
  * @example

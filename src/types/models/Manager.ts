@@ -137,7 +137,7 @@ export interface LocalSource {
 export type ProviderSource = GithubSource | RegistrySource | LocalSource;
 
 /**
- * Configuration option for the `ScrapePluginManager`,
+ * Configuration option for the `GrabitManager`,
  * which manages provider modules and their interactions.
  */
 export type ProviderManagerConfig = {
@@ -155,7 +155,7 @@ export type ProviderManagerConfig = {
 
 	/**
 	 * Optional interval in minutes for auto-updating providers from remote sources.
-	 * When set, the ScrapePluginManager will periodically check for updates to the provider modules and refresh them without requiring a restart.
+	 * When set, the GrabitManager will periodically check for updates to the provider modules and refresh them without requiring a restart.
 	 *
 	 * This is particularly useful for (remote sources)
 	 *

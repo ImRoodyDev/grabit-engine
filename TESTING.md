@@ -11,7 +11,7 @@ This is a **dev-only** tool — it is not exported from or bundled into the `gra
 The tester does the following in one command:
 
 1. **Resolves your provider** — finds `providers/<scheme>/index.js` (pre-bundled) or auto-bundles `index.ts` on the fly via esbuild into a temporary file.
-2. **Bootstraps the context** — loads the same `xhr`, `cheerio`, and `puppeteer` context that `ScrapePluginManager` uses internally.
+2. **Bootstraps the context** — loads the same `xhr`, `cheerio`, and `puppeteer` context that `GrabitManager` uses internally.
 3. **Enriches media via TMDB** — for movies/series, the tester calls `TMDB.createRequesterMedia()` to fill in any missing fields (title, year, duration, IMDB ID, localized titles, etc.). You only need to provide the minimum required fields. Fields you provide are **never overwritten**.
 4. **Runs the scrape** — calls `getStreams` and/or `getSubtitles` on your module with the enriched media, with a configurable timeout.
 5. **Reports results** — prints a formatted report of every source found, with a `PASS / EMPTY / FAIL` verdict at the end.
