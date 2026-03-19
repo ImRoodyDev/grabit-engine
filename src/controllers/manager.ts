@@ -4,7 +4,7 @@ import xhrCore from "../core/xhr.ts";
 import { ScrapeRequester, MediaSource, SubtitleSource, ProviderModule, ProviderModuleManifest, RawScrapeRequester } from "../types/index.ts";
 import { ProviderContext } from "../types/models/Context.ts";
 import { ProviderManagerConfig, IProviderManagerWorkers } from "../types/models/Manager.ts";
-import { DebugLogger } from "../utils/logger.ts";
+import { DebugLogger, Logger } from "../utils/logger.ts";
 import { excuteWithRetries, formatTimestamp, isDevelopment, isNode, secondsToMilliseconds } from "../utils/standard.ts";
 import { isSourceCached, CACHE } from "../services/cache.ts";
 import pLimit, { LimitFunction } from "p-limit";
@@ -23,6 +23,7 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 
 	private constructor(config: ProviderManagerConfig) {
 		super(config);
+		Logger.enableDebugging(config.debug ?? isDevelopment());
 		ScrapePluginManager.logger = new DebugLogger(config.debug ?? isDevelopment(), "ScrapePluginManager");
 		ScrapePluginManager.context = ScrapePluginManager.createContext(config);
 
