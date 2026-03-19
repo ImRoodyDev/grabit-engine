@@ -605,14 +605,12 @@ General-purpose runtime helpers.
 | `isDevelopment`         | `() → boolean`                                   | `true` when `process.env.ENV !== "production"`.                           |
 | `isNode`                | `() → boolean`                                   | `true` when running in a Node.js environment.                             |
 | `isCustomError`         | `(error) → error is HttpError \| ProcessError`   | Type guard for custom error classes.                                      |
-| `sanitizeMessage`       | `(value) → string`                               | Strips escaped quotes and normalises whitespace.                          |
 | `minutesToMilliseconds` | `(minutes) → number`                             | Converts minutes → ms.                                                    |
 | `hoursToMilliseconds`   | `(hours) → number`                               | Converts hours → ms.                                                      |
 | `secondsToMilliseconds` | `(seconds) → number`                             | Converts seconds → ms.                                                    |
 | `customParseInt`        | `(input) → number`                               | Parses a digit-only string; returns `NaN` for anything else.              |
 | `commaSplitter`         | `(input) → string[]`                             | Splits a comma-separated string, trimming each part.                      |
 | `delay`                 | `(ms) → Promise<void>`                           | Awaitable sleep.                                                          |
-| `retriesCount`          | `(attempts, maxAttempts, retryScore?) → number`  | Computes the logical retry row number.                                    |
 | `excuteWithRetries`     | `(fn, maxAttempts?, backoffDelay?) → Promise<T>` | Runs `fn` up to `maxAttempts` times with optional delay between attempts. |
 | `sorter`                | `(items, compareFn) → Promise<T[]>`              | Async merge-sort with an async comparator.                                |
 | `createCookiesFromSet`  | `(headers) → string`                             | Converts `Set-Cookie` headers into a single `Cookie` header string.       |

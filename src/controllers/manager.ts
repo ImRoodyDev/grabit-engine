@@ -5,7 +5,8 @@ import { ScrapeRequester, MediaSource, SubtitleSource, ProviderModule, ProviderM
 import { ProviderContext } from "../types/models/Context.ts";
 import { ProviderManagerConfig, IProviderManagerWorkers } from "../types/models/Manager.ts";
 import { DebugLogger, Logger } from "../utils/logger.ts";
-import { excuteWithRetries, formatTimestamp, isDevelopment, isNode, secondsToMilliseconds } from "../utils/standard.ts";
+import { excuteWithRetries, isDevelopment, isNode, secondsToMilliseconds } from "../utils/standard.ts";
+import { formatTimestamp, sortByTargetLanguage } from "../utils/internal.ts";
 import { isSourceCached, CACHE } from "../services/cache.ts";
 import pLimit, { LimitFunction } from "p-limit";
 import { ModuleManager, ProviderHealthReport, ProviderMetrics } from "./module.ts";
@@ -208,7 +209,7 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 	 *
 	 * Every public `getStreams` / `getSubtitles` / progressive variant delegates here.
 	 */
-	private async scrapeProviders<T>(
+	private async scrapeProviders<T extends { language: string }>(
 		rawRequester: RawScrapeRequester,
 		providerType: ProviderModuleManifest["type"],
 		worker: (module: ProviderModule, requester: ScrapeRequester, context: ProviderContext) => Promise<T[]>,
@@ -250,7 +251,8 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 			return await worker(module, localRequester, ScrapePluginManager.context);
 		};
 
-		return await this.createOperation(providers, fn, operationOptions);
+		const results = await this.createOperation(providers, fn, operationOptions);
+		return sortByTargetLanguage(results, requester.targetLanguageISO);
 	}
 
 	// --------------------------------------------------
@@ -380,7 +382,8 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 		const fn = async (mod: ProviderModule, _limiter: LimitFunction) => {
 			return await mod.workers.getStreams!(requester, ScrapePluginManager.context);
 		};
-		return await this.createOperation([module], fn);
+		const results = await this.createOperation([module], fn);
+		return sortByTargetLanguage(results, requester.targetLanguageISO);
 	}
 
 	public async getSubtitlesByScheme(scheme: string, requester: ScrapeRequester): Promise<SubtitleSource[]> {
@@ -399,6 +402,7 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 		const fn = async (mod: ProviderModule, _limiter: LimitFunction) => {
 			return await mod.workers.getSubtitles!(requester, ScrapePluginManager.context);
 		};
-		return await this.createOperation([module], fn);
+		const results = await this.createOperation([module], fn);
+		return sortByTargetLanguage(results, requester.targetLanguageISO);
 	}
 }

@@ -15,7 +15,7 @@ The format is based on Keep a Changelog.
 
 ### Added
 
-- Added `formatTimestamp(date?: Date): string` utility to `src/utils/standard.ts` returning a human-readable `HH:MM:SS:mmm` timestamp.
+- Added `formatTimestamp(date?: Date): string` utility to `src/utils/internal.ts` returning a human-readable `HH:MM:SS:mmm` timestamp.
 - Added per-dispatch timestamps to the provider debug log using `formatTimestamp()`, making concurrent execution visible when `concurrentOperations > 1`.
 - Added manager-level Puppeteer browser pooling with `scrapeConfig.puppeteer.maxConcurrentBrowsers`, `scrapeConfig.puppeteer.minWarmBrowsers`, and `scrapeConfig.puppeteer.idleBrowserTTL` so Node.js scraping can reuse warm browser processes instead of spawning one browser per request.
 - Added `scrapeConfig.puppeteer.maxBrowserSessionTTL` (default 10 minutes) to auto-release leaked browser tabs. A warning is always logged regardless of debug mode when a provider forgets to call `browser.close()`.
@@ -26,6 +26,7 @@ The format is based on Keep a Changelog.
 - Changed `ctx.puppeteer.launch()` to lease tabs from the manager-owned browser pool. Calling the returned `browser.close()` releases the leased tab; real browser processes are closed when they age out of the pool or when the manager is destroyed.
 - Removed `browsingOptions.closeOnComplete` option — the page now always stays open after `puppeteer.launch()` resolves. Providers must call `browser.close()` when done to release the tab back to the pool.
 - Fixed source language sorting: results are now always sorted with the requester's target language first, regardless of whether `validateSources` is enabled.
+- Moved `sanitizeMessage`, `retriesCount`, and `formatTimestamp` from `utils/standard` (public API) to `utils/internal` (internal only). These functions are no longer exported from the package entry point.
 
 ## [1.0.3] - 2026-03-19
 

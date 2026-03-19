@@ -14,6 +14,7 @@ import {
 	isProcessError
 } from "../types/index.ts";
 import { validateManifestConfiguration } from "../utils/validator.ts";
+import { sortByTargetLanguage } from "../utils/internal.ts";
 
 function describeProviderWorkerError(workerName: "getStreams" | "getSubtitles", manifest: ProviderModuleManifest, error: unknown) {
 	const base = `Provider ${manifest.name} ${workerName} failed`;
@@ -123,17 +124,6 @@ function createModuleWorkers(provider: Provider, manifest: ProviderModuleManifes
 				}
 			: undefined
 	};
-}
-
-/** Stable sort that puts sources matching the target language first, preserving original order within each group. */
-function sortByTargetLanguage<T extends { language: string }>(sources: T[], targetLanguageISO: string): T[] {
-	const matches: T[] = [];
-	const rest: T[] = [];
-	for (const source of sources) {
-		if (source.language === targetLanguageISO) matches.push(source);
-		else rest.push(source);
-	}
-	return [...matches, ...rest];
 }
 
 /**

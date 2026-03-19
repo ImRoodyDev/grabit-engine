@@ -11,7 +11,6 @@ export const isBrowser = () => typeof window !== "undefined" && typeof window.do
 export function isCustomError(error: unknown): error is HttpError | ProcessError {
 	return error instanceof HttpError || error instanceof ProcessError;
 }
-export const sanitizeMessage = (value: string): string => value.replace(/\\"/g, '"').replace(/"/g, "").replace(/\s+/g, " ").trim();
 
 export const minutesToMilliseconds = (minutes: number): number => minutes * 60 * 1000;
 export const hoursToMilliseconds = (hours: number): number => hours * 60 * 60 * 1000;
@@ -28,18 +27,6 @@ export function commaSplitter(input: string | undefined): string[] {
 
 export async function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Calculate the row number based on the total number of retries.
- * @param attempts - The total number of retries .
- * @param retryScore - retries margin meaning how many retries is counted as 1.
- * @param maxAttempts - The maximum number of retries.
- * @returns - The row number.
- */
-export function retriesCount(attempts: number, maxAttempts: number, retryScore = 1) {
-	// Calculate the row number using the modulo operator
-	const rowNumber = ((attempts - 1) % (retryScore * maxAttempts)) + 1;
-	return Math.ceil(rowNumber / retryScore);
 }
 
 /** Run a function with retries and delay between attempts */
@@ -209,12 +196,4 @@ export function shuffleArray<T>(array: T[]): T[] {
 
 export function deduplicateArray<T>(array: T[]): T[] {
 	return Array.from(new Set(array));
-}
-
-/** Returns a human-readable timestamp string in `HH:MM:SS:mmm` format. */
-export function formatTimestamp(date: Date = new Date()): string {
-	return (
-		[String(date.getHours()).padStart(2, "0"), String(date.getMinutes()).padStart(2, "0"), String(date.getSeconds()).padStart(2, "0")].join(":") +
-		`:${String(date.getMilliseconds()).padStart(3, "0")}`
-	);
 }
