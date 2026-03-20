@@ -111,9 +111,6 @@
 		"tldts": "^7.0.24",
 		"validator": "^13.15.26"
 	},
-	"optionalDependencies": {
-		"puppeteer-real-browser": "^1.4.4"
-	},
 	"peerDependencies": {
 		"puppeteer-real-browser": "^1.4.4",
 		"react-native-quick-crypto": "^0.7.17",

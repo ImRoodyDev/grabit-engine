@@ -4,7 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog.
 
-## [1.2.0] - 2026-03-19
+## [1.2.0-alpha.3] - 2026-03-20
+
+### Fixed
+
+- Fixed `bundle-provider` generating unnecessarily large provider bundles by eliminating accidental imports of the heavyweight `src/types/index.ts` barrel from provider-safe runtime modules.
+- Fixed provider bundles inlining the `validator` npm package via `validateManifestConfiguration` by moving that check into a new lightweight module.
+- Fixed `bundle-provider` shim missing the `tldts` named export, which caused providers importing `{ tldts }` from `grabit-engine` to fail bundling.
+
+### Changed
+
+- Made `puppeteer-real-browser` truly optional for consumers by removing it from `optionalDependencies`. It remains an optional peer dependency, so it will not be installed unless the app explicitly installs it.
+- Tightened the `bundle-provider` root shim surface so `import { ... } from "grabit-engine"` in provider source exposes a minimal runtime API, while keeping safe subpath imports available.
+
+## [1.2.0-alpha.2] - 2026-03-19
 
 ### Fixed
 
