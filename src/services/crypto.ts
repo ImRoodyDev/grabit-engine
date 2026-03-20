@@ -16,6 +16,7 @@
 
 import Crypto from "crypto";
 export { Crypto };
+import { Logger } from "../utils/logger.ts";
 
 // Polyfill atob / btoa for environments that don't provide them globally
 // (e.g. React Native < 0.74).
@@ -39,5 +40,6 @@ if (typeof globalThis.atob === "undefined" || typeof globalThis.btoa === "undefi
 	} catch {
 		// `base-64` is not installed — atob/btoa will remain unavailable.
 		// Install the optional peer dependency `base-64` if you need this polyfill.
+		Logger.warn("base-64 package not found. atob/btoa functions will not be available in this environment. Install base-64 for support.");
 	}
 }
