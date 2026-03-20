@@ -2,18 +2,12 @@ import { extractExtension } from "../utils/extractor.ts";
 import { default as ISO6391 } from "iso-639-1";
 import { normalizeHeaders } from "../utils/standard.ts";
 import { Provider } from "../models/provider.ts";
-import {
-	InternalIProviderModuleWorkers,
-	IProviderModuleWorkers,
-	ProviderModule,
-	ProviderModuleManifest,
-	MediaSource,
-	SubtitleSource,
-	ScrapeRequester,
-	ProviderContext,
-	isProcessError
-} from "../types/index.ts";
-import { validateManifestConfiguration } from "../utils/validator.ts";
+import type { ScrapeRequester } from "../types/input/Requester.ts";
+import type { MediaSource, SubtitleSource } from "../types/output/MediaSources.ts";
+import type { ProviderContext } from "../types/models/Context.ts";
+import type { InternalIProviderModuleWorkers, IProviderModuleWorkers, ProviderModule, ProviderModuleManifest } from "../types/models/Modules.ts";
+import { isProcessError } from "../types/ProcessError.ts";
+import { validateManifestConfiguration } from "../utils/providerValidation.ts";
 import { sortByTargetLanguage } from "../utils/internal.ts";
 
 function describeProviderWorkerError(workerName: "getStreams" | "getSubtitles", manifest: ProviderModuleManifest, error: unknown) {

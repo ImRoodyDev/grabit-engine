@@ -89,16 +89,60 @@ function packageName(specifier) {
  * can keep importing { Crypto } from "grabit-engine" without pulling the
  * service's atob/btoa polyfill side-effects into every bundle.
  */
+/**
+ * Subpath imports that are allowed inside provider bundles.
+ *
+ * IMPORTANT: keep this list tight.
+ * Anything included here can end up bundled into remote GitHub-loaded providers.
+ */
 const PROVIDER_SAFE_MODULES = [
 	"controllers/provider",
 	"models/provider",
 	"services/unpacker",
+
+	// Intentionally NOT re-exported from the main shim — providers must opt-in
+	// via `import { tldts } from \"grabit-engine/services/tldts\"`.
 	"services/tldts",
-	"types/index",
+
+	// Safe standalone runtime errors + (mostly) type-only modules
+	"types/HttpError",
+	"types/ProcessError",
+	"types/input/Media",
+	"types/input/Requester",
+	"types/output/MediaSources",
+	"types/models/Modules",
+	"types/models/Provider",
+	"types/models/Context",
+	"types/models/Manager",
+
 	"utils/path",
 	"utils/standard",
 	"utils/similarity",
-	"utils/extractor"
+	"utils/extractor",
+	"utils/internal",
+	"utils/validator"
+];
+
+/**
+ * What `import { ... } from "grabit-engine"` exposes to providers.
+ *
+ * Keep this minimal to avoid pulling large optional deps into every bundle.
+ * Providers can still import additional safe modules via `grabit-engine/...`.
+ */
+const PROVIDER_SHIM_EXPORTS = [
+	"controllers/provider",
+	"models/provider",
+	"services/unpacker",
+
+	// Common utilities
+	"utils/path",
+	"utils/standard",
+	"utils/similarity",
+	"utils/extractor",
+
+	// Errors (runtime)
+	"types/HttpError",
+	"types/ProcessError"
 ];
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -375,10 +419,15 @@ function createExternalizePlugin(contextImports) {
 				const ext = hasTs ? ".ts" : ".js";
 				const loader = hasTs ? "ts" : "js";
 
-				const lines = PROVIDER_SAFE_MODULES.map((m) => `export * from "./${m}${ext}";`);
+				const lines = PROVIDER_SHIM_EXPORTS.map((m) => `export * from "./${m}${ext}";`);
+				// Keep Crypto available from the root import for compatibility,
+				// but served via a virtual shim to avoid polyfill side-effects.
 				lines.push(`export { Crypto } from "${PROVIDER_CRYPTO_SHIM_PATH}";`);
-				// Also re-export ISO6391 (lightweight data-only package)
+				// ISO6391 is used by the provider module wrapper and is lightweight.
 				lines.push(`export { default as ISO6391 } from "iso-639-1";`);
+				// Back-compat: some providers import `{ tldts }` from "grabit-engine".
+				// Keep it as a named re-export so it can be tree-shaken when unused.
+				lines.push(`export { tldts } from "./services/tldts${ext}";`);
 
 				return { contents: lines.join("\n"), resolveDir: dir, loader };
 			});

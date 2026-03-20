@@ -1,4 +1,5 @@
-import { HttpError, ProcessError } from "../types/index.ts";
+import { HttpError } from "../types/HttpError.ts";
+import { ProcessError } from "../types/ProcessError.ts";
 import { extractSetCookies } from "./extractor.ts";
 import { Logger } from "./logger.ts";
 import type { Response } from "../services/fetcher.ts";

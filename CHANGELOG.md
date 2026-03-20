@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog.
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed `bundle-provider` generating unnecessarily large provider bundles by eliminating accidental imports of the heavyweight `src/types/index.ts` barrel from provider-safe runtime modules.
+- Fixed provider bundles inlining the `validator` npm package via `validateManifestConfiguration` by moving that check into a new lightweight module.
+
+### Changed
+
+- Tightened the `bundle-provider` root shim surface so `import { ... } from "grabit-engine"` in provider source only exposes a minimal runtime API; providers must explicitly opt into extra functionality using `grabit-engine/...` subpath imports.
+- `tldts` is no longer implicitly re-exported through the provider shim; import it explicitly via `grabit-engine/services/tldts` when needed.
+
 ## [1.2.0] - 2026-03-19
 
 ### Fixed

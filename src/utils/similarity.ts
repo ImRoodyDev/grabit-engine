@@ -1,4 +1,4 @@
-import { Media } from "../types/index.ts";
+import type { Media } from "../types/input/Media.ts";
 import ParseDuration from "parse-duration";
 
 type MatchCriteria = {
