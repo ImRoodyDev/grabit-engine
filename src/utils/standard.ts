@@ -1,4 +1,4 @@
-import { HttpError, ProcessError } from "../types/index.ts";
+import { HttpError, ProcessError, ExternalProviderManifest, ProvidersManifest } from "../types/index.ts";
 import { extractSetCookies } from "./extractor.ts";
 import { Logger } from "./logger.ts";
 import type { Response } from "../services/fetcher.ts";
@@ -196,4 +196,19 @@ export function shuffleArray<T>(array: T[]): T[] {
 
 export function deduplicateArray<T>(array: T[]): T[] {
 	return Array.from(new Set(array));
+}
+
+/**
+ * Injects `scheme` from each map key into a raw external manifest,
+ * producing a fully-typed `ProvidersManifest` where every entry carries
+ * its own scheme identifier. This is the single authoritative conversion
+ * point used by all three provider source services (GitHub, registry, local).
+ */
+export function toInternalManifest(external: ExternalProviderManifest): ProvidersManifest {
+	return {
+		...external,
+		providers: Object.fromEntries(
+			Object.entries(external.providers).map(([scheme, p]) => [scheme, { ...p, scheme }])
+		)
+	};
 }

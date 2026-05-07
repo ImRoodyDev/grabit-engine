@@ -364,9 +364,7 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 		return this.scrapeProviders(rawRequester, "subtitle", (mod, req, ctx) => mod.workers.getSubtitles!(req, ctx), { ignoreQuorum: true, onPartialResult });
 	}
 
-	public async getStreamsByScheme(scheme: string, requester: ScrapeRequester): Promise<MediaSource[]> {
-		requester.targetLanguageISO = requester.targetLanguageISO.split("-")[0].toLowerCase();
-
+	public async getStreamsByScheme(scheme: string, rawRequester: RawScrapeRequester): Promise<MediaSource[]> {
 		const module = this.moduleByScheme(scheme);
 		if (!module) {
 			GrabitManager.logger.warn(`No active provider found for scheme "${scheme}"`);
@@ -377,16 +375,17 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 			return [];
 		}
 
-		const fn = async (mod: ProviderModule, _limiter: LimitFunction) => {
-			return await mod.workers.getStreams!(requester, GrabitManager.context);
+		const requester: ScrapeRequester = {
+			...rawRequester,
+			targetLanguageISO: rawRequester.targetLanguageISO.split("-")[0].toLowerCase(),
+			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester)
 		};
-		const results = await this.createOperation([module], fn);
+
+		const results = await this.createOperation([module], (mod, _) => mod.workers.getStreams!(requester, GrabitManager.context));
 		return sortByTargetLanguage(results, requester.targetLanguageISO);
 	}
 
-	public async getSubtitlesByScheme(scheme: string, requester: ScrapeRequester): Promise<SubtitleSource[]> {
-		requester.targetLanguageISO = requester.targetLanguageISO.split("-")[0].toLowerCase();
-
+	public async getSubtitlesByScheme(scheme: string, rawRequester: RawScrapeRequester): Promise<SubtitleSource[]> {
 		const module = this.moduleByScheme(scheme);
 		if (!module) {
 			GrabitManager.logger.warn(`No active provider found for scheme "${scheme}"`);
@@ -397,10 +396,13 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 			return [];
 		}
 
-		const fn = async (mod: ProviderModule, _limiter: LimitFunction) => {
-			return await mod.workers.getSubtitles!(requester, GrabitManager.context);
+		const requester: ScrapeRequester = {
+			...rawRequester,
+			targetLanguageISO: rawRequester.targetLanguageISO.split("-")[0].toLowerCase(),
+			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester)
 		};
-		const results = await this.createOperation([module], fn);
+
+		const results = await this.createOperation([module], (mod, _) => mod.workers.getSubtitles!(requester, GrabitManager.context));
 		return sortByTargetLanguage(results, requester.targetLanguageISO);
 	}
 }

@@ -1,4 +1,4 @@
-import { ScrapeRequester } from "../input/Requester.ts";
+import { ScrapeRequester, RawScrapeRequester } from "../input/Requester.ts";
 import { MediaSource, SubtitleSource } from "../output/MediaSources.ts";
 import type { PuppeteerPoolConfig } from "./Puppeteer.ts";
 import { ProviderModule, ProviderModuleManifest } from "./Modules.ts";
@@ -13,6 +13,15 @@ export type ProvidersManifest = {
 	author?: string;
 	/** scheme → relative folder path (supports groups, e.g. "social/twitter": "providers/social/twitter") */
 	providers: Record<string, ProviderModuleManifest>;
+};
+
+export type ExternalProviderManifest = {
+	/** Library Name */
+	name: string;
+	/** Author */
+	author?: string;
+	/** scheme → relative folder path (supports groups, e.g. "social/twitter": "providers/social/twitter") */
+	providers: Record<string, Omit<ProviderModuleManifest, "scheme">>;
 };
 
 /**
@@ -111,8 +120,11 @@ export interface RegistrySource {
  */
 export interface LocalSource {
 	type: "local";
-	/** The manifest object — import or require it yourself */
-	manifest: ProvidersManifest;
+	/** The manifest object — import or require it yourself.
+	 *  Typed as `ExternalProviderManifest` because JSON manifests on disk carry
+	 *  scheme only as the map key, not inside each entry. The engine promotes it
+	 *  to `ProvidersManifest` (with `scheme` injected) via `toInternalManifest`. */
+	manifest: ExternalProviderManifest;
 	/**
 	 * Base directory prepended to every provider path in the manifest.
 	 * Defaults to `'./'`.  A trailing slash is added automatically if missing.
@@ -296,13 +308,13 @@ export type ProviderManagerConfig = {
 
 export interface IProviderManagerWorkers {
 	/** Grabs streams for a given requester */
-	getStreams(requester: ScrapeRequester): Promise<MediaSource[]>;
+	getStreams(requester: RawScrapeRequester): Promise<MediaSource[]>;
 	/** Grabs subtitles for a given requester */
-	getSubtitles(requester: ScrapeRequester): Promise<SubtitleSource[]>;
-	/** Grabs streams from a single provider identified by its scheme key */
-	getStreamsByScheme(scheme: string, requester: ScrapeRequester): Promise<MediaSource[]>;
-	/** Grabs subtitles from a single provider identified by its scheme key */
-	getSubtitlesByScheme(scheme: string, requester: ScrapeRequester): Promise<SubtitleSource[]>;
+	getSubtitles(requester: RawScrapeRequester): Promise<SubtitleSource[]>;
+	/** Grabs streams from a single provider identified by its scheme key, with TMDB enrichment */
+	getStreamsByScheme(scheme: string, requester: RawScrapeRequester): Promise<MediaSource[]>;
+	/** Grabs subtitles from a single provider identified by its scheme key, with TMDB enrichment */
+	getSubtitlesByScheme(scheme: string, requester: RawScrapeRequester): Promise<SubtitleSource[]>;
 }
 
 export type ResolvedProviderSource = Readonly<{

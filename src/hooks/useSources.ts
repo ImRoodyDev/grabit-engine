@@ -1,6 +1,9 @@
+import { useCallback } from "react";
 import { useManager } from "./useManager.ts";
 import { useScraper } from "./useScraper.ts";
 import type { UseSourcesConfig, UseSourcesReturn } from "../types/hooks/useSources.ts";
+import type { ProviderModuleManifest } from "../types/models/Modules.ts";
+import type { ScrapeRequester } from "../types/input/Requester.ts";
 
 export type { UseSourcesConfig, UseSourcesReturn, ScrapeType } from "../types/hooks/useSources.ts";
 
@@ -32,9 +35,24 @@ export function useSources(config: UseSourcesConfig): UseSourcesReturn {
 		isContinuousScraping,
 		error: scrapeError,
 		scrape,
+		scrapeProvider,
 		stopContinuousScraping,
 		clearSources
 	} = useScraper({ manager, type, continuous });
+
+	/**
+	 * Returns the manifests of all active providers that are compatible with
+	 * the given `type` and `requester`. Useful for building a provider-picker
+	 * UI before or during a scrape. Returns an empty array when the manager
+	 * is not yet ready.
+	 */
+	const getAvailableProviders = useCallback(
+		(type: ProviderModuleManifest["type"], requester: ScrapeRequester): ProviderModuleManifest[] => {
+			if (!manager) return [];
+			return manager.getProvidersByRequest(type, requester).map((m) => m.meta);
+		},
+		[manager]
+	);
 
 	return {
 		mediaSources,
@@ -44,7 +62,10 @@ export function useSources(config: UseSourcesConfig): UseSourcesReturn {
 		isContinuousScraping,
 		error: initError ?? scrapeError,
 		scrape,
+		scrapeProvider,
 		stopContinuousScraping,
-		clearSources
+		clearSources,
+		getAvailableProviders
 	};
 }
+

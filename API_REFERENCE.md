@@ -54,17 +54,17 @@
 
 The main orchestrator — creates, manages, and queries provider plugins.
 
-| Method                                  | Returns                                | Description                                                                                                                 |
-| --------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `GrabitManager.create(config)`          | `Promise<GrabitManager>`               | Creates the manager and loads all your provider plugins.                                                                    |
-| `getStreams(request)`                   | `Promise<MediaSource[]>`               | Gets streams from **all active providers** for the given media. Returns everything in one list.                             |
-| `getSubtitles(request)`                 | `Promise<SubtitleSource[]>`            | Gets subtitles from **all active providers** for the given media.                                                           |
-| `getStreamsByScheme(scheme, request)`   | `Promise<MediaSource[]>`               | Gets streams from **one specific provider** by its scheme.                                                                  |
-| `getSubtitlesByScheme(scheme, request)` | `Promise<SubtitleSource[]>`            | Gets subtitles from **one specific provider** by its scheme.                                                                |
-| `closeOperations()`                     | `Promise<void>`                        | Cancels all in-progress and queued scrape operations. Useful for cleanup when navigating away or aborting.                  |
-| `getProvidersByRequest(type, request)`  | `ProviderModule[]`                     | Returns the list of active providers that match the given type (`"media"` or `"subtitle"`) and request, sorted by priority. |
-| `getMetrics()`                          | `ReadonlyMap<string, ProviderMetrics>` | Returns health stats for each provider (errors, successes, last activity).                                                  |
-| `getMetricsReport()`                    | `ProviderHealthReport[]`               | Returns a full health report for every loaded provider — error rate, status, and more.                                      |
+| Method                                  | Returns                                | Description                                                                                                                          |
+| --------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `GrabitManager.create(config)`          | `Promise<GrabitManager>`               | Creates the manager and loads all your provider plugins.                                                                             |
+| `getStreams(request)`                   | `Promise<MediaSource[]>`               | Gets streams from **all active providers** for the given media. Returns everything in one list.                                      |
+| `getSubtitles(request)`                 | `Promise<SubtitleSource[]>`            | Gets subtitles from **all active providers** for the given media.                                                                    |
+| `getStreamsByScheme(scheme, request)`   | `Promise<MediaSource[]>`               | Gets streams from **one specific provider** by its scheme. Accepts a `RawScrapeRequester` — TMDB enrichment is handled internally.   |
+| `getSubtitlesByScheme(scheme, request)` | `Promise<SubtitleSource[]>`            | Gets subtitles from **one specific provider** by its scheme. Accepts a `RawScrapeRequester` — TMDB enrichment is handled internally. |
+| `closeOperations()`                     | `Promise<void>`                        | Cancels all in-progress and queued scrape operations. Useful for cleanup when navigating away or aborting.                           |
+| `getProvidersByRequest(type, request)`  | `ProviderModule[]`                     | Returns the list of active providers that match the given type (`"media"` or `"subtitle"`) and request, sorted by priority.          |
+| `getMetrics()`                          | `ReadonlyMap<string, ProviderMetrics>` | Returns health stats for each provider (errors, successes, last activity).                                                           |
+| `getMetricsReport()`                    | `ProviderHealthReport[]`               | Returns a full health report for every loaded provider — error rate, status, and more.                                               |
 
 ### `ProviderManagerConfig`
 
@@ -254,19 +254,20 @@ const fullStreams = await manager.getStreams({
 
 ## `ProviderModuleManifest`
 
-Describes a provider's metadata inside a manifest. The provider's unique scheme identifier is **not** stored inside this object — it is the key under which this manifest is registered in the `providers` map (e.g. `{ "my-provider": { name: "...", ... } }`).
+Describes a provider's metadata. The `scheme` field is the provider's unique identifier — it matches the key under which this manifest is registered in the `providers` map and is automatically populated by the engine when modules are loaded from any source.
 
-| Field                 | Type                    | Required | Description                                                                        |
-| --------------------- | ----------------------- | -------- | ---------------------------------------------------------------------------------- |
-| `name`                | `string`                | ✅       | Human-readable provider name.                                                      |
-| `version`             | `string`                | ✅       | Semver version string (e.g. `"1.0.0"`).                                            |
-| `active`              | `boolean`               | ✅       | Whether the provider is enabled.                                                   |
-| `language`            | `string \| string[]`    | ✅       | ISO language code(s) — single string (e.g. `"en"`) or array (e.g. `["en", "fr"]`). |
-| `type`                | `"media" \| "subtitle"` | ✅       | What the provider returns.                                                         |
-| `env`                 | `"node" \| "universal"` | ✅       | Runtime compatibility.                                                             |
-| `supportedMediaTypes` | `MediaType[]`           | ✅       | `"movie"`, `"serie"`, `"channel"`.                                                 |
-| `priority`            | `number`                | ❌       | Lower = higher priority (default: `0`).                                            |
-| `dir`                 | `string`                | ❌       | Directory path for the provider folder.                                            |
+| Field                 | Type                    | Required | Description                                                                                             |
+| --------------------- | ----------------------- | -------- | ------------------------------------------------------------------------------------------------------- |
+| `scheme`              | `string`                | ✅       | Provider scheme identifier (e.g. `"opensubtitles"`). Populated automatically from the registry map key. |
+| `name`                | `string`                | ✅       | Human-readable provider name.                                                                           |
+| `version`             | `string`                | ✅       | Semver version string (e.g. `"1.0.0"`).                                                                 |
+| `active`              | `boolean`               | ✅       | Whether the provider is enabled.                                                                        |
+| `language`            | `string \| string[]`    | ✅       | ISO language code(s) — single string (e.g. `"en"`) or array (e.g. `["en", "fr"]`).                      |
+| `type`                | `"media" \| "subtitle"` | ✅       | What the provider returns.                                                                              |
+| `env`                 | `"node" \| "universal"` | ✅       | Runtime compatibility.                                                                                  |
+| `supportedMediaTypes` | `MediaType[]`           | ✅       | `"movie"`, `"serie"`, `"channel"`.                                                                      |
+| `priority`            | `number`                | ❌       | Lower = higher priority (default: `0`).                                                                 |
+| `dir`                 | `string`                | ❌       | Directory path for the provider folder.                                                                 |
 
 ---
 

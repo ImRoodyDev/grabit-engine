@@ -1,6 +1,6 @@
 import { isURL } from "validator";
 import type { IsURLOptions } from "validator";
-import { MEDIA_TYPES, ProvidersManifest, ProviderModule, ProviderModuleManifest, IProviderModuleWorkers, ProviderConfig } from "../types/index.ts";
+import { MEDIA_TYPES, ProvidersManifest, ExternalProviderManifest, ProviderModule, ProviderModuleManifest, IProviderModuleWorkers, ProviderConfig } from "../types/index.ts";
 import { Provider } from "../models/provider.ts";
 import { Logger } from "./logger.ts";
 
@@ -41,9 +41,12 @@ function isValidVersion(version: string): boolean {
 }
 
 /**
- * Validates the provider manifest and returns an object containing any errors or warnings found during validation.
+ * Validates a raw external manifest (scheme keys live only in the map key,
+ * not in the manifest body). The returned `manifest` field is typed as
+ * `ExternalProviderManifest` — call `toInternalManifest()` afterwards to
+ * promote it to a fully-typed `ProvidersManifest`.
  */
-export function validateProvidersManifest(manifest: ProvidersManifest) {
+export function validateProvidersManifest(manifest: ExternalProviderManifest) {
 	const errors: string[] = [];
 	const warnings: string[] = [];
 
@@ -57,13 +60,13 @@ export function validateProvidersManifest(manifest: ProvidersManifest) {
 	}
 
 	// Record of providers must be an object with at least one entry
-	if (!manifest.providers || typeof manifest.providers !== "object" || Object.keys(manifest.providers).length === 0) {
+	if (!manifest.providers || typeof manifest.providers !== "object" || Object.keys(manifest.providers).length === 0) {  
 		errors.push("Manifest must contain a 'providers' object with at least one provider entry.");
 	}
 
 	return {
 		valid: errors.length === 0,
-		manifest: manifest,
+		manifest: manifest as ExternalProviderManifest,
 		errors,
 		warnings
 	};
@@ -87,6 +90,14 @@ export function validateProviderModule(module: ProviderModule) {
 	// numbers, dots, dashes, underscores, and slash-delimited groups.
 	if (!provideConfig.scheme || typeof provideConfig.scheme !== "string" || !isValidScheme(provideConfig.scheme)) {
 		errors.push("Provider scheme is required and must be a valid scheme string (e.g., '9filmyzilla', 'social/twitter', 'movie', 'serie').");
+	}
+
+	// meta.scheme must also be present and valid — it is injected from the registry
+	// map key when the module is loaded so consumers never have to look it up separately.
+	if (!meta.scheme || typeof meta.scheme !== "string" || !isValidScheme(meta.scheme)) {
+		errors.push("Provider meta.scheme is required and must be a valid scheme string (e.g., '9filmyzilla', 'social/twitter', 'movie', 'serie').");
+	} else if (provideConfig.scheme && meta.scheme !== provideConfig.scheme) {
+		warnings.push(`Provider meta.scheme ("${meta.scheme}") does not match provider.config.scheme ("${provideConfig.scheme}"). They should be the same identifier.`);
 	}
 
 	// Version is required

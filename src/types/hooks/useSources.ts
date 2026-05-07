@@ -1,8 +1,9 @@
 import type { ProviderManagerConfig } from "../models/Manager.ts";
-import type { RawScrapeRequester } from "../input/Requester.ts";
+import type { RawScrapeRequester, ScrapeRequester } from "../input/Requester.ts";
 import type { MediaSource, SubtitleSource } from "../output/MediaSources.ts";
 import type { ProcessError } from "../ProcessError.ts";
 import type { HttpError } from "../HttpError.ts";
+import type { ProviderModuleManifest } from "../models/Modules.ts";
 
 export type SourcesError = ProcessError | HttpError;
 
@@ -79,4 +80,22 @@ export interface UseSourcesReturn {
 
 	/** Clear all collected media **and** subtitle sources. */
 	clearSources: () => void;
+
+	/**
+	 * Returns the manifests of all active providers that are compatible with
+	 * the given `type` and `requester`. Useful for building a provider-picker
+	 * UI before or during a scrape. Returns an empty array when the manager
+	 * is not yet ready.
+	 */
+	getAvailableProviders: (type: ProviderModuleManifest["type"], requester: ScrapeRequester) => ProviderModuleManifest[];
+
+	/**
+	 * Scrape a **single** provider by its scheme identifier.
+	 *
+	 * Results are merged into `mediaSources` / `subtitleSources` without
+	 * clearing them first. Respects the `type` option — only the relevant
+	 * worker(s) are invoked. Cancellable by a subsequent `scrape()` call
+	 * or `stopContinuousScraping()`.
+	 */
+	scrapeProvider: (requester: RawScrapeRequester, providerScheme: string) => Promise<void>;
 }

@@ -5,6 +5,9 @@ import { ScrapeRequester } from "../input/Requester.ts";
 import { SubtitleSource, MediaSource, InternalSubtitleSource, InternalMediaSource } from "../output/MediaSources.ts";
 
 export type ProviderModuleManifest = {
+	/** Scheme identifier for the provider (e.g., `"opensubtitles"`) */
+	scheme: string;
+
 	/** Name of the provider (e.g., `"OpenSubtitles"`) */
 	name: string;
 

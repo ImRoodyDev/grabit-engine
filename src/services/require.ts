@@ -1,6 +1,7 @@
 import { LocalSource, ProviderModule, ProvidersManifest } from "../types/index.ts";
 import { pathJoin } from "../utils/path.ts";
 import { validateProviderModules } from "../utils/validator.ts";
+import { toInternalManifest } from "../utils/standard.ts";
 import { ResolvedProviderSource } from "../types/models/Manager.ts";
 
 export namespace RequireService {
@@ -20,8 +21,12 @@ export namespace RequireService {
 		// Validate the loaded providers
 		const validations = validateProviderModules(registry);
 
+		// source.manifest is typed as ProvidersManifest but was authored externally
+		// (scheme only as map key) — promote it to guarantee scheme is in each entry.
+		const meta = toInternalManifest(source.manifest);
+
 		return {
-			meta: source.manifest,
+			meta,
 			providers: registry,
 			validations: {
 				errors: validations.errors,
@@ -31,6 +36,6 @@ export namespace RequireService {
 	}
 
 	export async function getManifest(source: LocalSource): Promise<ProvidersManifest> {
-		return source.manifest;
+		return toInternalManifest(source.manifest);
 	}
 }

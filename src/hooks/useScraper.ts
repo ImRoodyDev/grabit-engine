@@ -120,6 +120,54 @@ export function useScraper(options: UseScraperOptions) {
 		[type, continuous]
 	);
 
+	/**
+	 * Scrape a single provider by its scheme identifier.
+	 *
+	 * Results are **merged** into existing state without clearing it first,
+	 * so this can be called after a full `scrape()` to top-up a specific
+	 * provider. Respects the `type` option — only the relevant worker(s) are
+	 * invoked. The operation is discarded if a concurrent `scrape()` call
+	 * has incremented the scrape ID.
+	 */
+	const scrapeProvider = useCallback(
+		async (requester: RawScrapeRequester, providerScheme: string) => {
+			const mgr = managerRef.current;
+			if (!mgr) return;
+
+			// Snapshot the current ID — a targeted scrape does not reset shared
+			// state or increment the ID; it is cancelled by any subsequent full
+			// scrape or stopContinuousScraping() call.
+			const currentId = scrapeIdRef.current;
+
+			setIsLoading(true);
+			setError(null);
+
+			try {
+				const [newMedia, newSubs] = await Promise.all([
+					type === "media" || type === "both" ? mgr.getStreamsByScheme(providerScheme, requester) : Promise.resolve([] as MediaSource[]),
+					type === "subtitle" || type === "both" ? mgr.getSubtitlesByScheme(providerScheme, requester) : Promise.resolve([] as SubtitleSource[])
+				]);
+
+				if (!mountedRef.current || scrapeIdRef.current !== currentId) return;
+
+				if (type === "media" || type === "both") {
+					setMediaSources((prev) => mergeSources(prev, newMedia));
+				}
+				if (type === "subtitle" || type === "both") {
+					setSubtitleSources((prev) => mergeSources(prev, newSubs));
+				}
+			} catch (err) {
+				if (!mountedRef.current || scrapeIdRef.current !== currentId) return;
+				setError(err instanceof ProcessError ? err : new ProcessError({ code: "SCRAPE_ERROR", message: String(err) }));
+			} finally {
+				if (mountedRef.current && scrapeIdRef.current === currentId) {
+					setIsLoading(false);
+				}
+			}
+		},
+		[type]
+	);
+
 	const clearSources = useCallback(() => {
 		setMediaSources([]);
 		setSubtitleSources([]);
@@ -140,6 +188,7 @@ export function useScraper(options: UseScraperOptions) {
 		isContinuousScraping,
 		error,
 		scrape,
+		scrapeProvider,
 		stopContinuousScraping,
 		clearSources
 	} as const;

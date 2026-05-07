@@ -4,13 +4,14 @@ import {
 	isHttpError,
 	isProcessError,
 	ProcessError,
+	ExternalProviderManifest,
 	ProvidersManifest,
 	ProviderModule,
 	ProviderModuleManifest
 } from "../types/index.ts";
 import { ResolvedProviderSource } from "../types/models/Manager.ts";
 import { pathJoin } from "../utils/path.ts";
-import { isNode } from "../utils/standard.ts";
+import { isNode, toInternalManifest } from "../utils/standard.ts";
 import { Logger } from "../utils/logger.ts";
 import { validateProvidersManifest, validateProviderModules } from "../utils/validator.ts";
 import { appFetch } from "./fetcher.ts";
@@ -154,7 +155,8 @@ export namespace GithubService {
 		try {
 			const apiPath = `/repos/${opts.owner}/${opts.repo}/contents/${opts.rootDir}manifest.json?ref=${opts.branch}`;
 			const manifestText = await githubFetch<string>(apiPath, { token: opts.token, raw: true });
-			const validated = validateProvidersManifest(JSON.parse(manifestText) as ProvidersManifest);
+			// The raw JSON has scheme only as a map key, not inside each entry — parse as ExternalProviderManifest.
+			const validated = validateProvidersManifest(JSON.parse(manifestText) as ExternalProviderManifest);
 			if (!validated.valid) {
 				throw new ProcessError({
 					code: "PROVIDERS_MANIFEST_INVALID",
@@ -162,7 +164,8 @@ export namespace GithubService {
 					details: validated.errors
 				});
 			}
-			return validated.manifest;
+			// Promote to ProvidersManifest by injecting scheme into each entry.
+			return toInternalManifest(validated.manifest);
 		} catch (error) {
 			if (isHttpError(error) || isProcessError(error)) throw error;
 			throw new ProcessError({
@@ -225,6 +228,10 @@ export namespace GithubService {
 
 				if (modules[scheme] === null) {
 					Logger.error(`[GithubService] Provider "${scheme}" resolved, but did not export a valid ProviderModule shape.`);
+				} else {
+					// Always ensure meta.scheme reflects the canonical map key regardless
+					// of what the provider bundle declares internally.
+					modules[scheme]!.meta.scheme = scheme;
 				}
 			} catch (error) {
 				Logger.error(`[GithubService] Failed to resolve module for provider "${scheme}": ${error instanceof Error ? error.message : error}`);

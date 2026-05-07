@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog.
 
+## [1.2.0-alpha.4] - 2026-05-07
+
+### Added
+
+- Added `scheme` field to `ProviderModuleManifest` type. The scheme identifier (previously only stored as the map key in the `providers` record) is now also populated directly on each manifest object. All three source services — `GithubService`, `RegistryService`, and `RequireService` — inject the canonical scheme from the registry map key when modules are loaded, ensuring `meta.scheme` is always available on every loaded `ProviderModule`.
+- Added `scrapeProvider(requester, providerScheme)` callback to the `useScraper` hook. Scrapes a single provider by scheme by calling `getStreamsByScheme` and `getSubtitlesByScheme` in parallel, merging results into existing state without clearing it. Respects the `type` option and is cancellable by a subsequent `scrape()` or `stopContinuousScraping()` call.
+- Added `getAvailableProviders(type, requester)` callback to the `useSources` hook. Returns the `ProviderModuleManifest[]` of all active providers that match the given type and requester — useful for building a provider-picker UI. Returns an empty array when the manager is not yet ready.
+- Both new hook callbacks (`scrapeProvider`, `getAvailableProviders`) are included in the `UseSourcesReturn` type.
+
+### Changed
+
+- `getStreamsByScheme` and `getSubtitlesByScheme` now accept `RawScrapeRequester` instead of `ScrapeRequester`, performing TMDB enrichment internally — consistent with `getStreams` / `getSubtitles`. This is a **breaking change** for any direct callers passing a pre-resolved `ScrapeRequester`.
+
 ## [1.2.0-alpha.3] - 2026-03-20
 
 ### Fixed
