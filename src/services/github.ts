@@ -247,6 +247,12 @@ export namespace GithubService {
 	 * All Node.js APIs (fs, path, os, url) are lazy-imported so they
 	 * are never bundled in frontend / React Native builds.
 	 *
+	 * IMPORTANT: imports are wrapped in `new Function` so Metro's static
+	 * analyzer never sees them. A plain `await import("fs")` — even inside
+	 * an `isNode()` guard — is still added to Metro's module graph, and since
+	 * Node built-ins have no file path the Expo serializer crashes with
+	 * `The "to" argument must be of type string. Received undefined`.
+	 *
 	 * Throws a clear error when running outside Node.js.
 	 */
 	async function defaultNodeResolver(scheme: string, sourceCode: string): Promise<ProviderModule | null> {
@@ -255,11 +261,15 @@ export namespace GithubService {
 		let os: typeof import("os");
 		let urlMod: typeof import("url");
 
+		// new Function hides the import() calls from Metro's static analyzer so
+		// Node built-in modules are never added to the bundle graph.
+		const _import = new Function("id", "return import(id)") as (id: string) => Promise<any>;
+
 		try {
-			fs = await import("fs");
-			path = await import("path");
-			os = await import("os");
-			urlMod = await import("url");
+			fs = await _import("fs");
+			path = await _import("path");
+			os = await _import("os");
+			urlMod = await _import("url");
 		} catch {
 			throw new ProcessError({
 				code: "NODE_ENV_REQUIRED",
@@ -273,7 +283,9 @@ export namespace GithubService {
 		fs.writeFileSync(filePath, sourceCode, "utf-8");
 
 		try {
-			const mod = await import(urlMod.pathToFileURL(filePath).href);
+			// _import is used here too — the href is runtime-computed so Metro
+			// couldn't resolve it anyway, but _import keeps the pattern consistent.
+			const mod = await _import(urlMod.pathToFileURL(filePath).href);
 			return normalizeResolvedProviderModule(mod);
 		} catch (err: unknown) {
 			// Detect "Cannot find package" errors — these almost always mean the

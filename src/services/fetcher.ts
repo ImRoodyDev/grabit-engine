@@ -15,15 +15,15 @@
  *   - Node.js fetch → undici → OpenSSL → known bot fingerprint → BLOCKED
  *   - Impit         → Rust  → BoringSSL → browser fingerprint → ✅ PASSES
  */
-import type { RequestInit } from "impit";
 import { Crypto } from "./crypto.ts";
 import { CACHE } from "./cache.ts";
 import { delay, isBrowser, isNode, normalizeHeaders } from "../utils/standard.ts";
 import { HttpError } from "../types/HttpError.ts";
 import { ProcessError } from "../types/ProcessError.ts";
-import { HttpProxyAgent } from "http-proxy-agent";
-import { HttpsProxyAgent } from "https-proxy-agent";
-import { SocksProxyAgent } from "socks-proxy-agent";
+import type { RequestInit } from "impit";
+import type { HttpProxyAgent } from "http-proxy-agent";
+import type { HttpsProxyAgent } from "https-proxy-agent";
+import type { SocksProxyAgent } from "socks-proxy-agent";
 
 // declare module "node-fetch" {
 declare module "impit" {
@@ -55,7 +55,14 @@ async function resolveImpitClass() {
 	if (_resolvedImpitClass) return _resolvedImpitClass;
 
 	try {
-		const mod = await import("impit");
+		// new Function hides this import() from Metro's static analyzer.
+		// A plain `await import("impit")` would cause Metro to add the native
+		// Rust addon to the bundle graph, crashing the Expo serializer with
+		// "The 'to' argument must be of type string. Received undefined".
+		// In React Native, resolveFetch() never calls this function because
+		// useBareFetch is always true (isNode() === false in RN).
+		const _import = new Function("id", "return import(id)") as (id: string) => Promise<any>;
+		const mod = await _import("impit");
 		// Handle CJS/ESM interop: named export may not be synthesized for CJS modules
 		const ImpitClass = mod.Impit ?? (mod.default as any)?.Impit;
 

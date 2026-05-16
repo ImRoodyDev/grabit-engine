@@ -1,4 +1,4 @@
-import * as cheerio from "cheerio";
+import * as cheerio from "cheerio/slim";
 import { ProcessError, CheerioLoadRequest, CheerioLoadResult, ProviderContext, TProviderSelectors } from "../types/index.ts";
 import { RequestInit } from "../services/fetcher.ts";
 import { calculateMatchScore } from "../utils/similarity.ts";
