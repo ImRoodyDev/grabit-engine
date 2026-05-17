@@ -1,18 +1,18 @@
-// // crypto-wrapper.ts
+// // // crypto-wrapper.ts
 // import { isNode } from "../utils/standard";
-// let crypto: typeof import("crypto");
+// let Crypto: typeof import("crypto");
 // if (isNode() && navigator.product !== "ReactNative") {
 // 	// Node.js
-// 	crypto = require("crypto");
+// 	Crypto = require("crypto");
 // } else {
 // 	// React Native
 // 	try {
-// 		crypto = require("react-native-quick-crypto") as typeof import("crypto");
+// 		Crypto = require("react-native-quick-crypto") as typeof import("crypto");
 // 	} catch {
 // 		throw new Error("Crypto library not found for React Native. Install react-native-quick-crypto");
 // 	}
 // }
-// export default crypto;
+// export default Crypto;
 
 import Crypto from "crypto";
 export { Crypto };

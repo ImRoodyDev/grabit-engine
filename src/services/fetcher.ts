@@ -15,7 +15,6 @@
  *   - Node.js fetch → undici → OpenSSL → known bot fingerprint → BLOCKED
  *   - Impit         → Rust  → BoringSSL → browser fingerprint → ✅ PASSES
  */
-import { Crypto } from "./crypto.ts";
 import { CACHE } from "./cache.ts";
 import { delay, isBrowser, isNode, normalizeHeaders } from "../utils/standard.ts";
 import { HttpError } from "../types/HttpError.ts";
@@ -118,7 +117,16 @@ async function resolveFetch(agent: RequestInit["agent"]): Promise<UniversalFetch
 }
 function createRequestCacheKey(request: RequestInfo | URL, method: string = "GET"): string {
 	const urlString = typeof request === "string" ? request : request.toString();
-	return Crypto.createHash("md5").update(`${method.toUpperCase()}:${urlString}`).digest("hex");
+	return createStableHash(`${method.toUpperCase()}:${urlString}`);
+}
+
+/** Fast deterministic non-cryptographic hash used only for cache keys. */
+function createStableHash(input: string): string {
+	let hash = 5381;
+	for (let i = 0; i < input.length; i++) {
+		hash = (hash * 33) ^ input.charCodeAt(i);
+	}
+	return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 /** Clone a Response into a plain serializable object for caching */

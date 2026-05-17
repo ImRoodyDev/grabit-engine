@@ -3,6 +3,9 @@ import type { ScrapeRequester } from "../input/Requester.ts";
 
 type PuppeteerLifeCycleEvent = "domcontentloaded" | "load" | "networkidle0" | "networkidle2";
 
+export type PuppeteerPage = ConnectResult["page"];
+export type PuppeteerBrowser = ConnectResult["browser"];
+
 export type PuppeteerPoolConfig = {
 	/**
 	 * Maximum number of real browser processes the shared pool may keep alive at once.
@@ -66,6 +69,6 @@ export type PuppeteerLoadRequest = {
 };
 
 export type PuppeteerLoadResult = Readonly<{
-	page: ConnectResult["page"];
-	browser: ConnectResult["browser"];
+	page: PuppeteerPage;
+	browser: PuppeteerBrowser;
 }>;

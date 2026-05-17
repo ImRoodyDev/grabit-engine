@@ -4,7 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog.
 
-## [1.2.0-alpha.4] - 2026-05-07
+## [1.2.0] - 2026-05-17
+
+### Added
+
+- Added provider metadata and hook ergonomics introduced across the 1.2.0 alpha cycle, including guaranteed `meta.scheme`, `scrapeProvider(requester, providerScheme)`, and `getAvailableProviders(type, requester)`.
+- Added richer manager observability and control features, including timestamped dispatch logging, targeted provider execution, and configurable quorum behavior for active provider operations.
+
+### Changed
+
+- Changed manager and scraping internals for safer concurrent execution, including per-dispatch requester isolation, improved language-aware TMDB enrichment flow, and pooled Puppeteer browser leasing lifecycle.
+- Changed provider loading and bundling architecture to keep provider bundles leaner and more environment-safe, while preserving Node.js, browser, and React Native compatibility paths.
+- Changed scheme-targeted scraping APIs (`getStreamsByScheme`, `getSubtitlesByScheme`) to accept `RawScrapeRequester` and perform enrichment internally.
+
+### Fixed
+
+- Fixed multiple provider-bundling regressions (heavy transitive imports, unsafe subpaths, missing shim exports, and ESM/CJS runtime compatibility), producing smaller and more reliable provider artifacts.
+- Fixed manager runtime stability issues including quorum accounting edge cases, pooled browser reuse/disconnect failures, and source-language result sorting consistency.
+- Fixed platform compatibility pain points across Node.js and React Native by hardening optional dependency behavior and improving runtime diagnostics for missing provider packages and malformed modules.
+
+## [1.2.0-alpha.2] - 2026-05-17
 
 ### Added
 
@@ -12,12 +31,19 @@ The format is based on Keep a Changelog.
 - Added `scrapeProvider(requester, providerScheme)` callback to the `useScraper` hook. Scrapes a single provider by scheme by calling `getStreamsByScheme` and `getSubtitlesByScheme` in parallel, merging results into existing state without clearing it. Respects the `type` option and is cancellable by a subsequent `scrape()` or `stopContinuousScraping()` call.
 - Added `getAvailableProviders(type, requester)` callback to the `useSources` hook. Returns the `ProviderModuleManifest[]` of all active providers that match the given type and requester — useful for building a provider-picker UI. Returns an empty array when the manager is not yet ready.
 - Both new hook callbacks (`scrapeProvider`, `getAvailableProviders`) are included in the `UseSourcesReturn` type.
+- Added a dedicated React Native package entry and RN-safe type barrel so mobile consumers resolve a native-safe surface by default.
 
 ### Changed
 
 - `getStreamsByScheme` and `getSubtitlesByScheme` now accept `RawScrapeRequester` instead of `ScrapeRequester`, performing TMDB enrichment internally — consistent with `getStreams` / `getSubtitles`. This is a **breaking change** for any direct callers passing a pre-resolved `ScrapeRequester`.
+- Changed optional Node-only dependency resolution (`puppeteer-real-browser`, Node crypto paths) to Metro-safe lazy loading patterns so React Native/Expo bundling does not traverse unsupported runtime modules.
 
-## [1.2.0-alpha.3] - 2026-03-20
+### Fixed
+
+- Fixed Expo/Metro serializer crashes (`The "to" argument must be of type string. Received undefined`) caused by statically discoverable optional Node-only imports during bundle graph construction.
+- Fixed React Native integration requiring app-side shims for Node-only optional dependencies. `grabit-engine` now supports React Native without requiring client-side Metro shims.
+
+## [1.2.0-alpha.2] - 2026-03-20
 
 ### Fixed
 

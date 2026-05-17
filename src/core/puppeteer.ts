@@ -1,11 +1,15 @@
-import type { PageWithCursor } from "puppeteer-real-browser";
-import { PuppeteerLoadRequest, PuppeteerLoadResult, PuppeteerPoolConfig } from "../types/models/Puppeteer.ts";
+import { PuppeteerBrowser, PuppeteerLoadRequest, PuppeteerLoadResult, PuppeteerPage, PuppeteerPoolConfig } from "../types/models/Puppeteer.ts";
 import { ProcessError, ProviderContext } from "../types/index.ts";
 import { Logger } from "../utils/logger.ts";
 import { isNode } from "../utils/standard.ts";
 
-// Lazy-loaded puppeteer-real-browser module
-let puppeteerModule: typeof import("puppeteer-real-browser") | null = null;
+type PageWithCursor = PuppeteerPage;
+type PuppeteerModule = {
+	connect: (options: BrowserConnectOptions) => Promise<PuppeteerLoadResult>;
+};
+
+// Lazy-loaded optional runtime module
+let puppeteerModule: PuppeteerModule | null = null;
 // This plugin works best with non-headless mode, but it can be disabled if needed (e.g. for environments that don't support headless mode properly)
 let HEADLESS = true;
 const CLOUDFLARE_DETECTION = /Attention Required|Just a moment|Cloudflare/i;
@@ -217,11 +221,19 @@ export function __resetPuppeteerPoolForTests(): void {
 }
 
 /** Lazily imports the optional Puppeteer dependency only when Node-side scraping needs it. */
-async function getPuppeteerModule(): Promise<typeof import("puppeteer-real-browser")> {
+async function getPuppeteerModule(): Promise<PuppeteerModule> {
 	if (puppeteerModule) return puppeteerModule;
 
 	try {
-		puppeteerModule = await import("puppeteer-real-browser");
+		// Hide this optional import from Metro's static analyzer so React Native builds
+		// don't try to resolve a Node-only package at bundle time.
+		const _import = new Function("id", "return import(id)") as (id: string) => Promise<any>;
+		const mod = await _import("puppeteer-real-browser");
+		const runtimeModule = (mod?.default ?? mod) as PuppeteerModule;
+		if (typeof runtimeModule?.connect !== "function") {
+			throw new Error("puppeteer-real-browser module does not expose a connect() function");
+		}
+		puppeteerModule = runtimeModule;
 		return puppeteerModule;
 	} catch {
 		throw new ProcessError({
@@ -424,7 +436,7 @@ function handleReleasedBrowser(entry: BrowserPoolEntry): void {
 }
 
 /** Proxies browser shutdown APIs so providers release only their own lease. */
-function createProxyBrowserHandle(browser: PuppeteerLoadResult["browser"], release: () => Promise<void>): PuppeteerLoadResult["browser"] {
+function createProxyBrowserHandle(browser: PuppeteerBrowser, release: () => Promise<void>): PuppeteerBrowser {
 	return new Proxy(browser, {
 		get(target, property, receiver) {
 			// Closing the provider-facing handle returns the tab to the pool instead of killing the shared browser.
@@ -434,7 +446,7 @@ function createProxyBrowserHandle(browser: PuppeteerLoadResult["browser"], relea
 			if (typeof value === "function") return value.bind(target);
 			return value;
 		}
-	}) as PuppeteerLoadResult["browser"];
+	}) as PuppeteerBrowser;
 }
 
 /** Proxies page.close() so it routes through the pool release instead of killing the Chrome tab directly. */
