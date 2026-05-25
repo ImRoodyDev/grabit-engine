@@ -95,9 +95,9 @@
 		"esbuild": "^0.27.3",
 		"jest": "^30.2.0",
 		"typescript": "5.8.3",
-		"http-proxy-agent": "^7.0.2",
-		"https-proxy-agent": "^7.0.6",
-		"socks-proxy-agent": "^8.0.5",
+		"http-proxy-agent": "^9.0.0",
+		"https-proxy-agent": "^9.0.0",
+		"socks-proxy-agent": "^9.0.0",
 		"puppeteer-real-browser": "^1.4.4"
 	},
 	"dependencies": {
@@ -114,9 +114,9 @@
 		"puppeteer-real-browser": "^1.4.4",
 		"react-native-quick-crypto": "^0.7.17",
 		"react": ">=17.0.0",
-		"http-proxy-agent": "^7.0.0",
-		"https-proxy-agent": "^7.0.0",
-		"socks-proxy-agent": ">=8.0.0 <11.0.0"
+		"http-proxy-agent": ">=7.0.0",
+		"https-proxy-agent": ">=7.0.0",
+		"socks-proxy-agent": ">=7.0.0"
 	},
 	"peerDependenciesMeta": {
 		"puppeteer-real-browser": {
