@@ -1,6 +1,6 @@
 ﻿<div align="center">
 
-<img src="https://raw.githubusercontent.com/ImRoodyDev/grabit-engine/refs/heads/beta-v1/grabit.svg" width="120" alt="Grabit Engine" />
+<img src="https://raw.githubusercontent.com/ImRoodyDev/grabit-engine/refs/heads/main/grabit.svg" width="120" alt="Grabit Engine" />
 <h1>Grabit Engine</h1>
 
 <a href="https://www.npmjs.com/package/grabit-engine"><img src="https://img.shields.io/npm/v/grabit-engine?style=flat&logo=npm" alt="npm version" /></a>
