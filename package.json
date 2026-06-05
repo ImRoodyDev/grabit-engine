@@ -67,9 +67,9 @@
 		"LICENSE"
 	],
 	"bin": {
-		"create-provider": "./scripts/create-provider.js",
-		"bundle-provider": "./scripts/bundle-provider.js",
-		"test-provider": "./scripts/test-provider.js"
+		"create-provider": "scripts/create-provider.js",
+		"bundle-provider": "scripts/bundle-provider.js",
+		"test-provider": "scripts/test-provider.js"
 	},
 	"scripts": {
 		"watch": "tsc -w",
@@ -81,8 +81,11 @@
 		"bundle": "node scripts/bundle-provider.js",
 		"bundle:clean": "node scripts/bundle-provider.js --clean",
 		"test-provider": "node scripts/test-provider.js",
-		"publish:npm": "npx -p dotenv-cli dotenv -e .env -- npm publish",
-		"publish:alpha:npm": "npx -p dotenv-cli dotenv -e .env -- npm publish --tag alpha"
+		"npm:publish": "npm publish",
+		"npm:publish:alpha": "npm publish --tag alpha",
+		"npm:publish:dry-run": "npm publish --dry-run --tag alpha",
+		"dotenv:npm:publish": "npx -p dotenv-cli dotenv -e .env -- npm publish --tag",
+		"dotenv:npm:publish:alpha": "npx -p dotenv-cli dotenv -e .env -- npm publish --tag alpha"
 	},
 	"devDependencies": {
 		"@babel/preset-env": "^7.29.0",
