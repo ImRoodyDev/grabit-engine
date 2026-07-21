@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useVideoPlayer, VideoView } from 'expo-video';
+import { useVideoPlayer, VideoView, type ContentType } from 'expo-video';
 import type { MediaSource, SubtitleSource } from 'grabit-engine';
 import { colors, radius } from '../theme';
 import { fetchSubtitles, type Cue } from '../subtitles';
@@ -24,6 +24,17 @@ function variantsOf(source: MediaSource): Variant[] {
 const headersOf = (xhr?: { haveCorsPolicy: boolean; headers: Record<string, string> }) =>
 	xhr && Object.keys(xhr.headers ?? {}).length > 0 ? xhr.headers : undefined;
 
+/**
+ * expo-video needs an explicit contentType for streaming formats when the URL
+ * has no clean extension (scraped m3u8/mpd URLs often carry query strings), or
+ * HLS tracks won't load.
+ */
+function contentTypeFor(format: string | undefined, url: string): ContentType {
+	if (format === 'm3u8' || url.includes('.m3u8')) return 'hls';
+	if (format === 'dash' || url.includes('.mpd')) return 'dash';
+	return 'auto';
+}
+
 /** Mounts only while a source is selected, so the video hook has a valid uri. */
 function PlayerContent({ source, subtitles, onClose, font, space }: Props & { source: MediaSource }) {
 	const variants = variantsOf(source);
@@ -32,10 +43,27 @@ function PlayerContent({ source, subtitles, onClose, font, space }: Props & { so
 	const [cues, setCues] = useState<Cue[]>([]);
 	const [subState, setSubState] = useState<'idle' | 'loading' | 'error'>('idle');
 
+	const streamUrl = variants[quality].url;
 	const mediaHeaders = headersOf(source.xhr);
-	const player = useVideoPlayer({ uri: variants[quality].url, headers: mediaHeaders }, (p) => {
+	const contentType = contentTypeFor(source.format, streamUrl);
+
+	// Log exactly what we hand the player — url, headers, detected content type.
+	useEffect(() => {
+		console.log('[Player] playing', JSON.stringify({ url: streamUrl, contentType, headers: mediaHeaders ?? {} }, null, 2));
+	}, [streamUrl, contentType, mediaHeaders]);
+
+	const player = useVideoPlayer({ uri: streamUrl, headers: mediaHeaders, contentType }, (p) => {
 		p.play();
 	});
+
+	// Surface playback status / errors so a silent failure is visible in logs.
+	useEffect(() => {
+		const sub = player.addListener('statusChange', ({ status, error }) => {
+			if (status === 'error') console.warn('[Player] error', streamUrl, error?.message ?? error);
+			else console.log('[Player] status', status);
+		});
+		return () => sub.remove();
+	}, [player, streamUrl]);
 
 	useEffect(() => {
 		if (subIndex === null) {
