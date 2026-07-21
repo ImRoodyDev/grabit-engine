@@ -99,11 +99,41 @@ If you are targeting React Native, install `base-64` alongside this package. On 
 npm install react-native-quick-crypto
 ```
 
-If your providers use `Crypto` and you load them in React Native, install `react-native-quick-crypto`. GitHub-loaded provider bundles will look for crypto in this order: `require("react-native-quick-crypto")`, `require("crypto")`, `globalThis.__grabitCrypto`, then `globalThis.crypto`.
+If your providers use `Crypto` and you load them in React Native, install `react-native-quick-crypto`. GitHub-loaded provider bundles look for crypto in this order: `globalThis.__grabitCrypto`, `globalThis.Crypto`, `globalThis.crypto`, `require("react-native-quick-crypto")`, `require("crypto")`. Since bundles are evaluated with the `Function` constructor they have no `require`, so in React Native the global path is the only one that works — use [`setupGrabitGlobals`](#react-native--expo-setup) to register it.
 
 </details>
 
 <br />
+
+### React Native / Expo setup
+
+React Native has no dynamic `import()` from a string and no Node built-ins, so the `github` source needs two pieces of glue. The engine ships both, so you don't have to write them by hand:
+
+- **`moduleResolver`** — evaluates a fetched provider bundle into a module. Pass it to the `github` source.
+- **`setupGrabitGlobals`** — registers the globals bundled providers read at runtime (`crypto` and `Buffer`), and reports what the runtime supports.
+
+```bash
+npm install react-native-quick-crypto @craftzdog/react-native-buffer
+```
+
+```tsx
+import { GrabitManager, moduleResolver, setupGrabitGlobals } from "grabit-engine";
+import QuickCrypto from "react-native-quick-crypto";
+import { Buffer } from "@craftzdog/react-native-buffer";
+
+// Call once, before creating a manager. Existing globals are never overwritten.
+const report = setupGrabitGlobals({ crypto: QuickCrypto, buffer: Buffer });
+if (!report.functionConstructor) {
+	// The runtime cannot evaluate provider bundles (eval-restricted engine).
+}
+
+const manager = await GrabitManager.create({
+	source: { type: "github", url: "owner/repo", branch: "main", rootDir: "dist", moduleResolver },
+	tmdbApiKeys: [KEY],
+});
+```
+
+`setupGrabitGlobals` returns `{ crypto, buffer, atob, functionConstructor, errors }` — a boolean readout plus any assignment errors, useful for an on-device diagnostics panel. Both `crypto` and `buffer` are optional; omit them if your providers don't use them. You must also alias `crypto` in `metro.config.js` for `react-native-quick-crypto`'s own imports — see its setup docs.
 
 ---
 
@@ -855,7 +885,12 @@ Providers that fail too often (more than `errorThresholdRate` after `minOperatio
 <summary><strong>React Native with GitHub source</strong></summary>
 
 ```typescript
-import { GrabitManager } from "grabit-engine";
+import { GrabitManager, moduleResolver, setupGrabitGlobals } from "grabit-engine";
+import QuickCrypto from "react-native-quick-crypto";
+import { Buffer } from "@craftzdog/react-native-buffer";
+
+// Register crypto/Buffer for provider bundles before creating the manager.
+setupGrabitGlobals({ crypto: QuickCrypto, buffer: Buffer });
 
 const manager = await GrabitManager.create({
 	source: {
@@ -863,12 +898,7 @@ const manager = await GrabitManager.create({
 		url: "your-org/providers-repo",
 		branch: "main",
 		rootDir: "dist", // optional
-		moduleResolver: async (_scheme, sourceCode) => {
-			const exports: Record<string, unknown> = {};
-			const module = { exports };
-			new Function("module", "exports", sourceCode)(module, exports);
-			return (module.exports as any).default ?? module.exports;
-		}
+		moduleResolver // shipped by grabit-engine — no need to hand-write it
 	},
 	tmdbApiKeys: ["your-tmdb-api-key"],
 	scrapeConfig: {

@@ -30,3 +30,6 @@ export * from "./utils/path.ts";
 export * from "./utils/standard.ts";
 export * from "./utils/similarity.ts";
 export * from "./utils/extractor.ts";
+
+// React Native / browser helpers for the GitHub source
+export * from "./utils/native.ts";

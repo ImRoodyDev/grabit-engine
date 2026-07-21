@@ -619,6 +619,45 @@ General-purpose runtime helpers.
 | `attachExtension`       | `(extension, urlOrPath) → string`                | Appends or replaces the file extension on a URL or path.                  |
 | `shuffleArray`          | `(array) → T[]`                                  | Returns a new array with elements randomly shuffled (Fisher–Yates).       |
 
+### React Native / browser (`utils/native`)
+
+Helpers for loading the `github` source outside Node. Exported from the package root.
+
+| Function             | Signature                                                       | Description                                                                                                                            |
+| -------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `moduleResolver`     | `(scheme, sourceCode) → Promise<ProviderModule>`                | Default `moduleResolver` for `GithubSource`. Evaluates a fetched bundle with the `Function` constructor (Hermes-safe, unlike `eval`) and re-throws failures with the provider scheme attached. |
+| `setupGrabitGlobals` | `(options?: GrabitGlobalsOptions) → GrabitGlobalsReport`        | Registers the globals bundled providers read at runtime and reports runtime support. Call once before creating a manager. Never overwrites existing globals. |
+
+**`GrabitGlobalsOptions`**
+
+| Field    | Type      | Description                                                                                            |
+| -------- | --------- | ------------------------------------------------------------------------------------------------------ |
+| `crypto` | `unknown` | Crypto implementation, exposed as `globalThis.__grabitCrypto`. In RN: `require("react-native-quick-crypto")`. Optional. |
+| `buffer` | `unknown` | Buffer implementation, exposed as `globalThis.Buffer`. In RN: `require("@craftzdog/react-native-buffer").Buffer`. Optional but required for providers that decode binary data — RN has no global `Buffer`. |
+
+**`GrabitGlobalsReport`**
+
+| Field                 | Type       | Description                                                             |
+| --------------------- | ---------- | ----------------------------------------------------------------------- |
+| `crypto`              | `boolean`  | `globalThis.__grabitCrypto` is set.                                     |
+| `buffer`              | `boolean`  | `globalThis.Buffer` is set.                                             |
+| `atob`                | `boolean`  | `atob` exists globally (RN ≥ 0.74 provides it).                         |
+| `functionConstructor` | `boolean`  | The `Function` constructor works — the GitHub-source model requires it. |
+| `errors`              | `string[]` | Assignment failures, one per failed global.                             |
+
+```ts
+import { GrabitManager, moduleResolver, setupGrabitGlobals } from "grabit-engine";
+import QuickCrypto from "react-native-quick-crypto";
+import { Buffer } from "@craftzdog/react-native-buffer";
+
+setupGrabitGlobals({ crypto: QuickCrypto, buffer: Buffer });
+
+const manager = await GrabitManager.create({
+	source: { type: "github", url: "owner/repo", branch: "main", moduleResolver },
+	tmdbApiKeys: [KEY],
+});
+```
+
 ---
 
 ## Services
