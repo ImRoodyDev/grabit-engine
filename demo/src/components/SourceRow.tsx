@@ -8,6 +8,8 @@ type Props = {
 	font: (n: number) => number;
 	space: (n: number) => number;
 	isTV: boolean;
+	/** Provided for media sources — opens the in-app player. */
+	onPress?: () => void;
 };
 
 /** Media playlists are either a URL string or a list of quality variants. */
@@ -16,17 +18,19 @@ function mediaLinks(source: MediaSource): { label: string; url: string }[] {
 	return source.playlist.map((v) => ({ label: String(v.resolution ?? v.dimensions), url: v.source }));
 }
 
-function SourceRowBase({ source, font, space, isTV }: Props) {
+function SourceRowBase({ source, font, space, isTV, onPress }: Props) {
 	const [focused, setFocused] = useState(false);
 
 	const isSubtitle = 'url' in source;
 	const accent = typeColor(isSubtitle);
 	const links = isSubtitle ? [{ label: source.format, url: (source as SubtitleSource).url }] : mediaLinks(source as MediaSource);
 	const lang = isSubtitle ? (source as SubtitleSource).languageName : source.language;
+	const playable = !isSubtitle && !!onPress;
 
 	return (
 		<Pressable
 			focusable={isTV}
+			onPress={playable ? onPress : undefined}
 			onFocus={() => setFocused(true)}
 			onBlur={() => setFocused(false)}
 			style={[
@@ -43,6 +47,11 @@ function SourceRowBase({ source, font, space, isTV }: Props) {
 					<Text style={[styles.provider, { fontSize: font(14) }]} numberOfLines={1}>
 						{source.providerName}
 					</Text>
+					{playable && (
+						<View style={[styles.play, { backgroundColor: accent }]}>
+							<Text style={[styles.playIcon, { fontSize: font(10) }]}>▶</Text>
+						</View>
+					)}
 					<View style={[styles.badge, { backgroundColor: `${accent}22`, borderColor: `${accent}55` }]}>
 						<Text style={[styles.badgeText, { color: accent, fontSize: font(10) }]}>{source.format?.toUpperCase()}</Text>
 					</View>
@@ -99,6 +108,8 @@ const styles = StyleSheet.create({
 	body: { flex: 1, minWidth: 0 },
 	topLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
 	provider: { color: colors.text, fontWeight: '700', flex: 1 },
+	play: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+	playIcon: { color: '#fff', marginLeft: 1 },
 	badge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.sm, borderWidth: 1 },
 	badgeText: { fontWeight: '800', letterSpacing: 0.5 },
 	fileName: { color: colors.textDim },

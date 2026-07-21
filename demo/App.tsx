@@ -10,9 +10,10 @@ import {
 	View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { useSources } from 'grabit-engine';
+import { useSources, type MediaSource } from 'grabit-engine';
 
 import { GLOBALS } from './src/globals';
+import { PlayerModal } from './src/components/PlayerModal';
 import { buildRequest, DEFAULT_FORM, GRABIT_MANAGER_CONFIG, HAS_TMDB_KEY, type FormState } from './src/config';
 import { useResponsive } from './src/useResponsive';
 import { colors, radius } from './src/theme';
@@ -24,6 +25,7 @@ import { Diagnostics } from './src/components/Diagnostics';
 export default function App() {
 	const { isTV, isLandscape, width, gutter, font, space } = useResponsive();
 	const [form, setForm] = useState<FormState>(DEFAULT_FORM);
+	const [playing, setPlaying] = useState<MediaSource | null>(null);
 
 	const {
 		mediaSources,
@@ -41,6 +43,11 @@ export default function App() {
 
 	const onChange = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
 		setForm((f) => ({ ...f, [key]: value }));
+	}, []);
+
+	// Only media sources open the player; subtitle rows are offered inside it.
+	const openMedia = useCallback((item: (typeof results)[number]) => {
+		if (!('url' in item)) setPlaying(item as MediaSource);
 	}, []);
 
 	const canScrape = isManagerReady && !isLoading && HAS_TMDB_KEY && form.tmdbId.trim().length > 0;
@@ -89,7 +96,9 @@ export default function App() {
 		<FlatList
 			data={results}
 			keyExtractor={(s, i) => `${s.scheme}-${s.providerName}-${s.fileName}-${i}`}
-			renderItem={({ item }) => <SourceRow source={item} font={font} space={space} isTV={isTV} />}
+			renderItem={({ item }) => (
+				<SourceRow source={item} font={font} space={space} isTV={isTV} onPress={() => openMedia(item)} />
+			)}
 			ItemSeparatorComponent={() => <View style={{ height: space(9) }} />}
 			ListHeaderComponent={resultsHeader}
 			contentContainerStyle={{ paddingBottom: space(28) }}
@@ -154,7 +163,7 @@ export default function App() {
 						}
 						renderItem={({ item }) => (
 							<View style={{ paddingHorizontal: gutter }}>
-								<SourceRow source={item} font={font} space={space} isTV={isTV} />
+								<SourceRow source={item} font={font} space={space} isTV={isTV} onPress={() => openMedia(item)} />
 							</View>
 						)}
 						contentContainerStyle={{ paddingBottom: space(28) }}
@@ -172,6 +181,14 @@ export default function App() {
 				)}
 			</KeyboardAvoidingView>
 			</SafeAreaView>
+
+			<PlayerModal
+				source={playing}
+				subtitles={subtitleSources}
+				onClose={() => setPlaying(null)}
+				font={font}
+				space={space}
+			/>
 		</SafeAreaProvider>
 	);
 }
