@@ -3,13 +3,13 @@ import {
 	FlatList,
 	KeyboardAvoidingView,
 	Platform,
-	SafeAreaView,
 	ScrollView,
 	StatusBar,
 	StyleSheet,
 	Text,
 	View,
 } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { useSources } from 'grabit-engine';
 
 import { GLOBALS } from './src/globals';
@@ -107,12 +107,13 @@ export default function App() {
 	);
 
 	return (
-		<SafeAreaView style={styles.safe}>
-			<StatusBar barStyle="light-content" hidden={isTV} />
-			<KeyboardAvoidingView
-				style={styles.flex}
-				behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-			>
+		<SafeAreaProvider>
+			<SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+				<StatusBar barStyle="light-content" hidden={isTV} />
+				<KeyboardAvoidingView
+					style={styles.flex}
+					behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+				>
 				<View style={[styles.header, { paddingHorizontal: gutter, paddingTop: space(14), paddingBottom: space(10) }]}>
 					<View style={[styles.logo, { backgroundColor: colors.accent, borderRadius: radius.sm }]}>
 						<Text style={[styles.logoText, { fontSize: font(15) }]}>G</Text>
@@ -170,7 +171,8 @@ export default function App() {
 					/>
 				)}
 			</KeyboardAvoidingView>
-		</SafeAreaView>
+			</SafeAreaView>
+		</SafeAreaProvider>
 	);
 }
 

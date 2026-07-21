@@ -1,10 +1,15 @@
-import { HttpError, ProcessError, ExternalProviderManifest, ProvidersManifest } from "../types/index.ts";
+// Import error classes from their own modules (not the ../types barrel): the
+// barrel re-exports these, which import back into this file, forming a require
+// cycle. isDevelopment now lives in ./env.ts and is re-exported below.
+import { HttpError } from "../types/HttpError.ts";
+import { ProcessError } from "../types/ProcessError.ts";
+import type { ExternalProviderManifest, ProvidersManifest } from "../types/models/Manager.ts";
 import { extractSetCookies } from "./extractor.ts";
 import { Logger } from "./logger.ts";
 import type { Response } from "../services/fetcher.ts";
 
 // Utility functions for the stream scraper package
-export const isDevelopment = () => typeof process !== "undefined" && process.env?.ENV !== "production";
+export { isDevelopment } from "./env.ts";
 export const isNode = () => typeof process !== "undefined" && process.versions != null && process.versions.node != null;
 export const isBrowser = () => typeof window !== "undefined" && typeof window.document !== "undefined";
 

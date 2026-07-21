@@ -1,5 +1,5 @@
 import { sanitizeMessage } from "../utils/internal.ts";
-import { isDevelopment } from "../utils/standard.ts";
+import { isDevelopment } from "../utils/env.ts";
 
 export interface HttpErrorPayload<TErrorDetails = unknown> {
 	code: string;

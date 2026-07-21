@@ -1,4 +1,4 @@
-import { isDevelopment } from "../utils/standard.ts";
+import { isDevelopment } from "../utils/env.ts";
 import { sanitizeMessage } from "../utils/internal.ts";
 
 export interface ProcessErrorPayload<TErrorDetails = unknown> {
