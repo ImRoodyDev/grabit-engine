@@ -31,6 +31,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { builtinModules } from "node:module";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
 
 const ROOT = process.cwd();
 const DEFAULT_PROVIDERS_DIR = path.join(ROOT, "providers");
@@ -38,6 +41,62 @@ const DEFAULT_OUT_DIR = path.join(ROOT, "dist");
 const MANIFEST_PATH = path.join(ROOT, "manifest.json");
 const PROVIDER_SHIM_PATH = "grabit-engine-provider-shim";
 const PROVIDER_CRYPTO_SHIM_PATH = "grabit-engine-provider-crypto-shim";
+
+/**
+ * Syntax that React Native's Hermes cannot compile at runtime.
+ *
+ * App code never hits this because Metro runs it through `@react-native/babel-preset`
+ * ahead of time — that preset carries `@babel/plugin-transform-classes` for exactly this
+ * reason. A provider bundle fetched from GitHub and evaluated with `new Function` skips
+ * Babel entirely and meets raw Hermes, so it has to ship pre-lowered.
+ *
+ * Verified against the Hermes shipped with React Native 0.79 (`hermesc`): `class`
+ * declarations *and* expressions are rejected outright ("invalid statement encountered"),
+ * and async arrow functions are rejected ("async functions are unsupported"). Generators,
+ * optional chaining, nullish coalescing, logical assignment, object spread, for-of and
+ * template literals all compile fine, so the lowering stays narrow on purpose — a broader
+ * `preset-env` pass would bloat every bundle for no benefit.
+ *
+ * esbuild cannot do this itself: it has a `hermes0.12` target but answers class syntax with
+ * "Transforming class syntax to the configured target environment is not supported yet".
+ */
+const HERMES_LOWERING_PLUGINS = [
+	"@babel/plugin-transform-class-properties",
+	"@babel/plugin-transform-private-methods",
+	"@babel/plugin-transform-private-property-in-object",
+	"@babel/plugin-transform-classes",
+	"@babel/plugin-transform-async-to-generator",
+];
+
+/**
+ * Rewrites an esbuild output file in place so Hermes can evaluate it at runtime.
+ * Returns `true` when the file was lowered, `false` when Babel is unavailable.
+ */
+async function lowerBundleForHermes(outfile) {
+	let babel;
+	try {
+		babel = await import("@babel/core");
+	} catch {
+		return false;
+	}
+
+	const source = fs.readFileSync(outfile, "utf8");
+	const result = await babel.transformAsync(source, {
+		configFile: false,
+		babelrc: false,
+		compact: false,
+		// The bundle is CJS and is evaluated as a plain script body, never as a module.
+		sourceType: "script",
+		plugins: HERMES_LOWERING_PLUGINS.map((plugin) => require.resolve(plugin)),
+	});
+
+	if (!result?.code) {
+		throw new Error("Babel produced no output while lowering for Hermes");
+	}
+
+	fs.writeFileSync(outfile, result.code, "utf8");
+	return true;
+}
 
 // ─── Node.js Built-ins ──────────────────────────────────────────────
 
@@ -539,6 +598,18 @@ async function bundleProviders(providers, dryRun, outDir) {
 						`  Remove the direct imports and use the ProviderContext (ctx) argument instead.`
 				);
 				// Still count as succeeded (bundle was written) but flag the issue
+			}
+
+			// ── Hermes downlevel ────────────────────────────────────────
+			// Runs on the finished bundle so inlined dependencies (iso-639-1's `class
+			// ISO6391`, the engine's `class ProcessError extends Error`, …) are lowered too,
+			// not just the provider's own source.
+			const lowered = await lowerBundleForHermes(provider.output);
+			if (!lowered) {
+				warn(
+					`  ${provider.scheme}: @babel/core not found — bundle left as-is. ` +
+						`It will fail to evaluate on React Native/Hermes.`
+				);
 			}
 
 			const size = fileSize(provider.output);

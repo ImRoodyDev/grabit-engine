@@ -143,6 +143,8 @@ export abstract class ModuleManager {
 
 	/** Load provider modules from cache if available and not expired */
 	protected loadModules(): boolean {
+		if (!this.cacheEnabled) return false;
+
 		const key = createSourceCacheKey(this.config.source);
 		const cached = CACHE.get<CachedModules>(key);
 		if (cached) {
@@ -208,8 +210,26 @@ export abstract class ModuleManager {
 		}
 	}
 
+	/**
+	 * Resolved module cache TTL.
+	 *
+	 * `cache.TTL` is the documented general knob and `cache.MODULE_TTL` the documented
+	 * module-specific override, but only `MODULE_TTL` was ever read — so a caller passing
+	 * `{ enabled: true, TTL: 300_000 }` silently got the hardcoded 15 minute default.
+	 */
+	protected get moduleCacheTTL(): number {
+		return this.config.cache?.MODULE_TTL ?? this.config.cache?.TTL ?? minutesToMilliseconds(15);
+	}
+
+	/** Whether module/metric caching is active. `cache.enabled` was previously ignored. */
+	protected get cacheEnabled(): boolean {
+		return this.config.cache?.enabled !== false;
+	}
+
 	/** Save the currently loaded provider modules to cache with the appropriate TTL */
 	protected saveModules() {
+		if (!this.cacheEnabled) return;
+
 		const key = createSourceCacheKey(this.config.source);
 
 		// Cache the loaded modules and its meta
@@ -219,8 +239,8 @@ export abstract class ModuleManager {
 				meta: this.meta,
 				providers: this.loadedModules
 			},
-			this.config.cache?.MODULE_TTL ?? minutesToMilliseconds(15)
-		); // Default module cache TTL is 15 minutes
+			this.moduleCacheTTL
+		);
 	}
 
 	/** Resolve a scheme identifier to the corresponding loaded module, or `null` if not found / inactive */
@@ -272,7 +292,8 @@ export abstract class ModuleManager {
 	/** Persist the current provider health metrics to cache */
 	protected saveMetrics() {
 		const key = createHealthCacheKey(this.config.source);
-		CACHE.set(key, this.metrics, this.config.cache?.MODULE_TTL ?? minutesToMilliseconds(15));
+		if (!this.cacheEnabled) return;
+		CACHE.set(key, this.metrics, this.moduleCacheTTL);
 	}
 
 	/** Record one operation outcome for a module and auto-disable it when its

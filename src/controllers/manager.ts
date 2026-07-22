@@ -7,7 +7,7 @@ import { ProviderManagerConfig, IProviderManagerWorkers } from "../types/models/
 import { DebugLogger, Logger } from "../utils/logger.ts";
 import { excuteWithRetries, isDevelopment, isNode, secondsToMilliseconds } from "../utils/standard.ts";
 import { formatTimestamp, sortByTargetLanguage } from "../utils/internal.ts";
-import { isSourceCached, CACHE } from "../services/cache.ts";
+import { isSourceCached } from "../services/cache.ts";
 import pLimit, { LimitFunction } from "p-limit";
 import { ModuleManager, ProviderHealthReport, ProviderMetrics } from "./module.ts";
 import { TMDB } from "../services/tmdb.ts";
@@ -20,6 +20,14 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 	private static logger: DebugLogger;
 	private static context: ProviderContext;
 	private static instance: GrabitManager;
+	/**
+	 * In-flight `create()` call. The instance is published synchronously before the
+	 * `await` on module loading, so a second concurrent `create()` used to receive a
+	 * manager with zero providers while the first was still fetching — easy to hit with
+	 * React StrictMode's double-mount or two screens mounting at once. Callers now await
+	 * the same promise.
+	 */
+	private static pending: Promise<GrabitManager> | null = null;
 	private limiters: LimitFunction[] = [];
 
 	private constructor(config: ProviderManagerConfig) {
@@ -35,27 +43,46 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 	/** Creates a new provider manager singleton instance */
 	public static async create(config: ProviderManagerConfig): Promise<GrabitManager> {
 		if (GrabitManager.instance) {
-			GrabitManager.logger.warn("GrabitManager instance already exists. Returning existing instance.");
+			GrabitManager.logger?.debug("GrabitManager instance already exists. Returning existing instance.");
 			return GrabitManager.instance;
 		}
+		// A create() is already running — join it instead of racing a second one.
+		if (GrabitManager.pending) return GrabitManager.pending;
+
+		GrabitManager.pending = GrabitManager.initialize(config).finally(() => {
+			GrabitManager.pending = null;
+		});
+		return GrabitManager.pending;
+	}
+
+	/** Builds the singleton. Always invoked through {@link GrabitManager.create}. */
+	private static async initialize(config: ProviderManagerConfig): Promise<GrabitManager> {
 		const manager = new GrabitManager(config);
 		GrabitManager.instance = manager;
 
-		// Check if the source is cached
-		const cached = isSourceCached(config.source);
-		if (cached) manager.loadModules();
-		else {
-			// If not cached, initialize modules and save to cache
-			await manager.initializeModules();
-			manager.saveModules();
+		try {
+			// `isSourceCached` only proves an entry existed a moment ago; `loadModules`
+			// re-reads it and can still miss (expired between the two calls, or caching
+			// disabled). Its result was previously discarded, which left the manager with
+			// zero providers and no fetch to recover.
+			const loadedFromCache = isSourceCached(config.source) && manager.loadModules();
+			if (!loadedFromCache) {
+				await manager.initializeModules();
+				manager.saveModules();
+			}
+
+			// Restore previously persisted health metrics (if available)
+			manager.restoreMetrics();
+
+			// Start auto-update service
+			manager.startAutoUpdateService();
+			return manager;
+		} catch (error) {
+			// Never leave a half-built singleton behind — the next create() would return it
+			// instead of retrying.
+			GrabitManager.instance = undefined!;
+			throw error;
 		}
-
-		// Restore previously persisted health metrics (if available)
-		manager.restoreMetrics();
-
-		// Start auto-update service
-		manager.startAutoUpdateService();
-		return manager;
 	}
 
 	/** Disable headless mode in Puppeteer */
@@ -269,8 +296,12 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 	public destroy() {
 		this.stopAutoUpdateService();
 		this.closeOperations();
-		CACHE.stopAutoCleanup();
 		shutdownPuppeteerPool();
+		// CACHE is a module-level singleton shared by every manager lifecycle, and its
+		// entries deliberately outlive a manager so the next create() can skip refetching.
+		// Stopping its sweeper here permanently disabled expiry cleanup for the rest of the
+		// process after the very first destroy — expired entries then lingered until some
+		// later get()/has() happened to evict them lazily.
 		GrabitManager.instance = undefined!;
 		GrabitManager.context = undefined!;
 		GrabitManager.logger = undefined!;
@@ -304,11 +335,15 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 
 	/** Get the list of providers by the supported requester */
 	public getProvidersByRequest(type: ProviderModuleManifest["type"], requester: ScrapeRequester) {
+		// Environment never changes at runtime — hoisted out of the predicate so it is
+		// resolved once per call instead of once per loaded module.
+		const runningOnNode = isNode();
+
 		// Filter providers that support the requested media type and scheme
 		const matchingProviders = this.loadedModules.filter((module) => {
 			// In node anything is compatible
 			// but in native enviroment only the universal providers should be included
-			const envCompatible = isNode() ? true : module.meta.env === "universal";
+			const envCompatible = runningOnNode ? true : module.meta.env === "universal";
 			// Filter based on the media type
 			const typeCompatible =
 				(type === "subtitle" && module.workers.getSubtitles !== undefined) || //..

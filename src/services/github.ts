@@ -153,8 +153,7 @@ export namespace GithubService {
 	/** Fetch the raw manifest.json from a GitHub repo. */
 	async function githubFetchManifest(opts: GitHubFetchOptions): Promise<ProvidersManifest> {
 		try {
-			const apiPath = `/repos/${opts.owner}/${opts.repo}/contents/${opts.rootDir}manifest.json?ref=${opts.branch}`;
-			const manifestText = await githubFetch<string>(apiPath, { token: opts.token, raw: true });
+			const manifestText = await fetchFileFromGitHub(opts, "manifest.json");
 			// The raw JSON has scheme only as a map key, not inside each entry — parse as ExternalProviderManifest.
 			const validated = validateProvidersManifest(JSON.parse(manifestText) as ExternalProviderManifest);
 			if (!validated.valid) {
@@ -176,10 +175,54 @@ export namespace GithubService {
 		}
 	}
 
-	/** Fetch a single raw file frodm a GitHub repo. */
+	/**
+	 * Fetch a file's contents over `raw.githubusercontent.com`.
+	 *
+	 * The REST API's `/contents` endpoint allows only 60 requests per hour per IP when
+	 * unauthenticated, and a provider library costs one request per provider plus one for
+	 * the manifest on every app start. A few reloads exhaust the quota and GitHub answers
+	 * 403 with an empty body — which surfaces as providers that mysteriously fail to load
+	 * while others succeed, depending on where in the list the quota ran out.
+	 *
+	 * The raw host serves identical bytes from a CDN and is not metered by that quota.
+	 */
+	async function fetchRawFile(opts: GitHubFetchOptions, filePath: string): Promise<string> {
+		const headers: Record<string, string> = { "User-Agent": "grabit-engine" };
+		// Private repos still need auth here; public ones ignore it.
+		if (opts.token) headers["Authorization"] = `Bearer ${opts.token}`;
+
+		const url = `https://raw.githubusercontent.com/${opts.owner}/${opts.repo}/${opts.branch}/${opts.rootDir}${filePath}`;
+		const res = await appFetch(url, { headers, clean: true });
+		if (!res.ok) {
+			const body = await res.text();
+			throw new HttpError({
+				code: "GITHUB_RAW_ERROR",
+				message: `GitHub raw request failed with status ${res.status}: ${res.statusText}`,
+				details: body,
+				statusCode: res.status,
+				expose: false
+			});
+		}
+		return res.text();
+	}
+
+	/**
+	 * Fetch a single raw file from a GitHub repo.
+	 *
+	 * Prefers the unmetered raw host and falls back to the REST API, which covers the cases
+	 * raw does not serve (some private-repo token setups, or a raw outage).
+	 */
 	async function fetchFileFromGitHub(opts: GitHubFetchOptions, filePath: string): Promise<string> {
-		const apiPath = `/repos/${opts.owner}/${opts.repo}/contents/${opts.rootDir}${filePath}?ref=${opts.branch}`;
-		return githubFetch<string>(apiPath, { token: opts.token, raw: true });
+		try {
+			return await fetchRawFile(opts, filePath);
+		} catch (error) {
+			Logger.debug(
+				`[GithubService] Raw fetch failed for "${filePath}", falling back to the REST API: ` +
+					`${error instanceof Error ? error.message : error}`
+			);
+			const apiPath = `/repos/${opts.owner}/${opts.repo}/contents/${opts.rootDir}${filePath}?ref=${opts.branch}`;
+			return githubFetch<string>(apiPath, { token: opts.token, raw: true });
+		}
 	}
 
 	/**
@@ -202,7 +245,7 @@ export namespace GithubService {
 			// Try index.js first, fall back to index.ts
 			let sourceCode: string;
 			const fetchPath = `${pathJoin(manifest.dir, scheme)}/index.js`;
-			const fullApiUrl = `https://api.github.com/repos/${opts.owner}/${opts.repo}/contents/${opts.rootDir}${fetchPath}?ref=${opts.branch}`;
+			const fullApiUrl = `https://raw.githubusercontent.com/${opts.owner}/${opts.repo}/${opts.branch}/${opts.rootDir}${fetchPath}`;
 			try {
 				sourceCode = await fetchFileFromGitHub(opts, fetchPath);
 			} catch (error) {
