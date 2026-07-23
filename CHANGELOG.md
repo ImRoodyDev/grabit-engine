@@ -4,26 +4,48 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog.
 
-## [1.2.0] - 2026-05-17
+## [Unreleased]
+
+> Work targeting the **1.2.0** stable release. Not yet published — the latest version on npm is `1.2.0-alpha.4`.
 
 ### Added
 
+- Added a Hermes downlevel pass to `bundle-provider`. Each finished bundle is run through a narrow Babel transform (`class-properties`, `private-methods`, `private-property-in-object`, `classes`, `async-to-generator`) so inlined dependencies are lowered too, not just provider source. The plugin set is deliberately minimal — verified against `hermesc` from React Native 0.79, which accepts generators, optional chaining, nullish coalescing, logical assignment, object spread, `for…of` and template literals, and rejects only `class` and async arrow functions.
 - Added provider metadata and hook ergonomics introduced across the 1.2.0 alpha cycle, including guaranteed `meta.scheme`, `scrapeProvider(requester, providerScheme)`, and `getAvailableProviders(type, requester)`.
 - Added richer manager observability and control features, including timestamped dispatch logging, targeted provider execution, and configurable quorum behavior for active provider operations.
 
 ### Changed
 
+- Changed GitHub provider fetching from the REST API to `raw.githubusercontent.com`. The `/contents` endpoint permits only 60 requests per hour per IP when unauthenticated, and a provider library costs one request per provider plus one for the manifest on every app start — a few reloads exhaust the quota and GitHub replies `403` with an empty body, which surfaces as providers that mysteriously fail while others succeed. The raw host serves identical bytes from a CDN and is not metered by that quota. The REST API remains as an automatic fallback.
+- Changed `useManager` to reference-count the manager singleton. `useSources` is typically mounted per screen, and the manager was previously destroyed whenever *any* consumer unmounted — tearing down the auto-update service, operation limiters and provider context on every navigation, only for the next screen to rebuild them. Teardown now happens once the last consumer unmounts, and a release that overlaps the next mount correctly aborts.
+- Changed `GrabitManager.create()` so concurrent callers join a single in-flight promise. The instance was published synchronously before the `await` on module loading, so a second concurrent call — trivially reached via React StrictMode's double-mount or two screens mounting at once — received a manager with zero providers.
 - Changed manager and scraping internals for safer concurrent execution, including per-dispatch requester isolation, improved language-aware TMDB enrichment flow, and pooled Puppeteer browser leasing lifecycle.
 - Changed provider loading and bundling architecture to keep provider bundles leaner and more environment-safe, while preserving Node.js, browser, and React Native compatibility paths.
 - Changed scheme-targeted scraping APIs (`getStreamsByScheme`, `getSubtitlesByScheme`) to accept `RawScrapeRequester` and perform enrichment internally.
+- Changed `getProvidersByRequest` to resolve `isNode()` once per call instead of once per loaded module inside the filter predicate.
 
 ### Fixed
 
+- Fixed GitHub provider bundles failing to evaluate on React Native with `Cannot read property 'prototype' of undefined`. React Native's Hermes cannot compile `class` syntax at all; application code is unaffected because Metro runs it through `@react-native/babel-preset` (which carries `@babel/plugin-transform-classes` for exactly this reason), but bundles fetched at runtime and evaluated with `new Function` never pass through Babel and meet raw Hermes directly. esbuild cannot lower this itself — it exposes a `hermes0.12` target but reports "Transforming class syntax to the configured target environment is not supported yet" — so the lowering now happens in `bundle-provider`.
+- Fixed `cache.enabled` and `cache.TTL` being documented on `ProviderManagerConfig` but never read. Only `MODULE_TTL` was consulted, so a caller passing `{ enabled: true, TTL: 300_000 }` silently received the hardcoded 15 minute default and could not disable module caching at all. Both options are now honored, with `MODULE_TTL` retained as the module-specific override.
+- Fixed `GrabitManager.create()` discarding the result of `loadModules()`. `isSourceCached()` only proves an entry existed a moment earlier; the subsequent read can still miss when the entry expired in between or caching is disabled. The miss was ignored, leaving a manager with no providers and no fetch to recover.
+- Fixed a failed initialization leaving a half-built singleton behind, which every later `create()` call would return instead of retrying.
+- Fixed `destroy()` stopping the shared module-level cache's auto-cleanup timer. Cache entries deliberately outlive any single manager so the next `create()` can skip refetching, but after the first teardown expiry sweeping was disabled for the remainder of the process, leaving expired entries to be evicted only lazily by a later `get()` or `has()`.
+- Fixed `isDevelopment()` returning `true` inside shipped React Native builds. React Native polyfills `process` but never sets `process.env.ENV`, so the previous `process.env.ENV !== "production"` check made every `debug`, `info` and `warn` call print in production. The check now consults React Native's `__DEV__` global first — the only reliable signal there, and correctly `false` in release builds — and falls back to `NODE_ENV`/`ENV`, leaving Node.js behavior unchanged.
+- Fixed `create()` logging "instance already exists" as a warning on every remount, and dereferencing a logger that `destroy()` had already cleared.
 - Fixed multiple provider-bundling regressions (heavy transitive imports, unsafe subpaths, missing shim exports, and ESM/CJS runtime compatibility), producing smaller and more reliable provider artifacts.
 - Fixed manager runtime stability issues including quorum accounting edge cases, pooled browser reuse/disconnect failures, and source-language result sorting consistency.
 - Fixed platform compatibility pain points across Node.js and React Native by hardening optional dependency behavior and improving runtime diagnostics for missing provider packages and malformed modules.
 
-## [1.2.0-alpha.2] - 2026-05-17
+## [1.2.0-alpha.4] - 2026-07-22
+
+<!-- Published to npm on 2026-07-22. Entries were never recorded — fill in before tagging 1.2.0. -->
+
+## [1.2.0-alpha.3] - 2026-07-21
+
+<!-- Published to npm on 2026-07-21. Entries were never recorded — fill in before tagging 1.2.0. -->
+
+## [1.2.0-alpha.2] - 2026-06-05
 
 ### Added
 
@@ -32,41 +54,6 @@ The format is based on Keep a Changelog.
 - Added `getAvailableProviders(type, requester)` callback to the `useSources` hook. Returns the `ProviderModuleManifest[]` of all active providers that match the given type and requester — useful for building a provider-picker UI. Returns an empty array when the manager is not yet ready.
 - Both new hook callbacks (`scrapeProvider`, `getAvailableProviders`) are included in the `UseSourcesReturn` type.
 - Added a dedicated React Native package entry and RN-safe type barrel so mobile consumers resolve a native-safe surface by default.
-
-### Changed
-
-- `getStreamsByScheme` and `getSubtitlesByScheme` now accept `RawScrapeRequester` instead of `ScrapeRequester`, performing TMDB enrichment internally — consistent with `getStreams` / `getSubtitles`. This is a **breaking change** for any direct callers passing a pre-resolved `ScrapeRequester`.
-- Changed optional Node-only dependency resolution (`puppeteer-real-browser`, Node crypto paths) to Metro-safe lazy loading patterns so React Native/Expo bundling does not traverse unsupported runtime modules.
-
-### Fixed
-
-- Fixed Expo/Metro serializer crashes (`The "to" argument must be of type string. Received undefined`) caused by statically discoverable optional Node-only imports during bundle graph construction.
-- Fixed React Native integration requiring app-side shims for Node-only optional dependencies. `grabit-engine` now supports React Native without requiring client-side Metro shims.
-
-## [1.2.0-alpha.2] - 2026-03-20
-
-### Fixed
-
-- Fixed `bundle-provider` generating unnecessarily large provider bundles by eliminating accidental imports of the heavyweight `src/types/index.ts` barrel from provider-safe runtime modules.
-- Fixed provider bundles inlining the `validator` npm package via `validateManifestConfiguration` by moving that check into a new lightweight module.
-- Fixed `bundle-provider` shim missing the `tldts` named export, which caused providers importing `{ tldts }` from `grabit-engine` to fail bundling.
-
-### Changed
-
-- Made `puppeteer-real-browser` truly optional for consumers by removing it from `optionalDependencies`. It remains an optional peer dependency, so it will not be installed unless the app explicitly installs it.
-- Tightened the `bundle-provider` root shim surface so `import { ... } from "grabit-engine"` in provider source exposes a minimal runtime API, while keeping safe subpath imports available.
-
-## [1.2.0-alpha.2] - 2026-03-19
-
-### Fixed
-
-- Fixed a race condition in `scrapeProviders` where the shared `requester` object (`media` and `targetLanguageISO`) was mutated inside the concurrent `fn` closure. Concurrent provider dispatches would stomp on each other's values mid-flight. Each invocation now receives its own `localRequester` shallow copy.
-- Fixed language-based media lookup in `scrapeProviders` using `requester.targetLanguageISO` as the cache key instead of the module's declared language. When a provider's primary language differs from the requester's, TMDB is now called with that provider's language so localized titles and metadata are correct for that provider.
-- Fixed nondeterministic `successQuorum` timing under scheduler load. Quorum-based operations now resolve immediately once enough providers return results and clear any queued work, instead of sometimes waiting for a slow provider that happened to start in the same concurrency window.
-- Fixed browser pool reuse crash ("Protocol error: Connection closed") when a provider releases the only open tab, causing Chrome to disconnect. The pool now listens for the browser `disconnected` event and proactively evicts dead entries. The reuse path in `acquireBrowserSession` also retries instead of propagating the error, so the next loop iteration spawns a fresh browser.
-
-### Added
-
 - Added `formatTimestamp(date?: Date): string` utility to `src/utils/internal.ts` returning a human-readable `HH:MM:SS:mmm` timestamp.
 - Added per-dispatch timestamps to the provider debug log using `formatTimestamp()`, making concurrent execution visible when `concurrentOperations > 1`.
 - Added manager-level Puppeteer browser pooling with `scrapeConfig.puppeteer.maxConcurrentBrowsers`, `scrapeConfig.puppeteer.minWarmBrowsers`, and `scrapeConfig.puppeteer.idleBrowserTTL` so Node.js scraping can reuse warm browser processes instead of spawning one browser per request.
@@ -75,11 +62,30 @@ The format is based on Keep a Changelog.
 
 ### Changed
 
-- Changed manager class name from `ScrapePluginManager` to `GrabitManager` (#sym:GrabitManager).
+- `getStreamsByScheme` and `getSubtitlesByScheme` now accept `RawScrapeRequester` instead of `ScrapeRequester`, performing TMDB enrichment internally — consistent with `getStreams` / `getSubtitles`. This is a **breaking change** for any direct callers passing a pre-resolved `ScrapeRequester`.
+- Changed optional Node-only dependency resolution (`puppeteer-real-browser`, Node crypto paths) to Metro-safe lazy loading patterns so React Native/Expo bundling does not traverse unsupported runtime modules.
+- Changed manager class name from `ScrapePluginManager` to `GrabitManager`.
 - Changed `ctx.puppeteer.launch()` to lease tabs from the manager-owned browser pool. Calling the returned `browser.close()` releases the leased tab; real browser processes are closed when they age out of the pool or when the manager is destroyed.
-- Removed `browsingOptions.closeOnComplete` option — the page now always stays open after `puppeteer.launch()` resolves. Providers must call `browser.close()` when done to release the tab back to the pool.
-- Fixed source language sorting: results are now always sorted with the requester's target language first, regardless of whether `validateSources` is enabled.
+- Made `puppeteer-real-browser` truly optional for consumers by removing it from `optionalDependencies`. It remains an optional peer dependency, so it will not be installed unless the app explicitly installs it.
+- Tightened the `bundle-provider` root shim surface so `import { ... } from "grabit-engine"` in provider source exposes a minimal runtime API, while keeping safe subpath imports available.
 - Moved `sanitizeMessage`, `retriesCount`, and `formatTimestamp` from `utils/standard` (public API) to `utils/internal` (internal only). These functions are no longer exported from the package entry point.
+
+### Removed
+
+- Removed `browsingOptions.closeOnComplete` option — the page now always stays open after `puppeteer.launch()` resolves. Providers must call `browser.close()` when done to release the tab back to the pool.
+
+### Fixed
+
+- Fixed Expo/Metro serializer crashes (`The "to" argument must be of type string. Received undefined`) caused by statically discoverable optional Node-only imports during bundle graph construction.
+- Fixed React Native integration requiring app-side shims for Node-only optional dependencies. `grabit-engine` now supports React Native without requiring client-side Metro shims.
+- Fixed `bundle-provider` generating unnecessarily large provider bundles by eliminating accidental imports of the heavyweight `src/types/index.ts` barrel from provider-safe runtime modules.
+- Fixed provider bundles inlining the `validator` npm package via `validateManifestConfiguration` by moving that check into a new lightweight module.
+- Fixed `bundle-provider` shim missing the `tldts` named export, which caused providers importing `{ tldts }` from `grabit-engine` to fail bundling.
+- Fixed a race condition in `scrapeProviders` where the shared `requester` object (`media` and `targetLanguageISO`) was mutated inside the concurrent `fn` closure. Concurrent provider dispatches would stomp on each other's values mid-flight. Each invocation now receives its own `localRequester` shallow copy.
+- Fixed language-based media lookup in `scrapeProviders` using `requester.targetLanguageISO` as the cache key instead of the module's declared language. When a provider's primary language differs from the requester's, TMDB is now called with that provider's language so localized titles and metadata are correct for that provider.
+- Fixed nondeterministic `successQuorum` timing under scheduler load. Quorum-based operations now resolve immediately once enough providers return results and clear any queued work, instead of sometimes waiting for a slow provider that happened to start in the same concurrency window.
+- Fixed browser pool reuse crash ("Protocol error: Connection closed") when a provider releases the only open tab, causing Chrome to disconnect. The pool now listens for the browser `disconnected` event and proactively evicts dead entries. The reuse path in `acquireBrowserSession` also retries instead of propagating the error, so the next loop iteration spawns a fresh browser.
+- Fixed source language sorting: results are now always sorted with the requester's target language first, regardless of whether `validateSources` is enabled.
 
 ## [1.0.3] - 2026-03-19
 
