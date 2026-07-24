@@ -1,4 +1,5 @@
-import { GithubService } from "../services/github.ts";
+import pLimit from "p-limit";
+import { GithubService, PROVIDER_FETCH_CONCURRENCY } from "../services/github.ts";
 import { RegistryService } from "../services/registry.ts";
 import { RequireService } from "../services/require.ts";
 import { ProviderModule, ProcessError } from "../types/index.ts";
@@ -7,6 +8,9 @@ import { DebugLogger } from "../utils/logger.ts";
 import { isCustomError, isDevelopment, minutesToMilliseconds } from "../utils/standard.ts";
 import { CACHE, createSourceCacheKey, createHealthCacheKey } from "../services/cache.ts";
 import { countValidationMessages, formatValidationIssues } from "../utils/validator.ts";
+
+/** How long metric writes are coalesced before hitting the cache. */
+const METRICS_FLUSH_DELAY = 1_000;
 
 type CachedModules = {
 	meta: ProvidersManifest;
@@ -37,6 +41,7 @@ export abstract class ModuleManager {
 	protected loadedModules: ProviderModule[] = [];
 	protected metrics: Map<string, ProviderMetrics> = new Map();
 	protected updateInrterval: NodeJS.Timeout | null = null;
+	private metricsFlushTimer: ReturnType<typeof setTimeout> | null = null;
 	private logger: DebugLogger;
 
 	protected constructor(protected config: ProviderManagerConfig) {
@@ -160,44 +165,48 @@ export abstract class ModuleManager {
 	protected async refreshModules() {
 		try {
 			if (!this.isRemote || !this.meta) return; // Only refresh for remote sources
-			if (this.config.source.type !== "github") return; // Currently only supports refreshing for GitHub sources
+			const source = this.config.source;
+			if (source.type !== "github") return; // Currently only supports refreshing for GitHub sources
 
 			this.logger.info("Refreshing provider modules");
 
 			// New manifest is fetched to compare module versions, if the version is different from the current one, or if caching is enabled and the cache has expired, the modules are refreshed
-			const newMeta = await GithubService.getManifest(this.config.source);
-			this.meta.name = newMeta.name;
-			this.meta.author = newMeta.author;
+			const newMeta = await GithubService.getManifest(source);
+			const meta = this.meta;
+			meta.name = newMeta.name;
+			meta.author = newMeta.author;
 
-			// Iterate through the new manifest providers and refresh modules if their version has changed or if they are not currently loaded
-			for (const [scheme, mod] of Object.entries(newMeta.providers)) {
-				// Check if the module version has changed compared to the currently loaded modules
-				// If module dont exist it will be loaded as well
-				const updateRequired = !this.meta.providers[scheme] || this.meta.providers[scheme]?.version !== mod.version;
+			// Select providers whose version changed, plus any that are not loaded yet
+			const outdated = Object.entries(newMeta.providers).filter(([scheme, mod]) => meta.providers[scheme]?.version !== mod.version);
 
-				if (updateRequired) {
-					const updatedModuleResult = await GithubService.getModule([scheme, mod], this.config.source);
-					if (updatedModuleResult.module) {
-						// Update the meta providers manifest
-						this.meta.providers[scheme] = mod;
+			// Download concurrently — each module is its own network round-trip
+			const limit = pLimit({ concurrency: PROVIDER_FETCH_CONCURRENCY });
+			const fetched = await Promise.all(
+				outdated.map(([scheme, mod]) => limit(async () => ({ scheme, mod, result: await GithubService.getModule([scheme, mod], source) })))
+			);
 
-						// Check if module exists in the currently loaded modules
-						const existingIndex = this.loadedModules.findIndex((m) => m.meta.name === mod.name);
+			// Apply the results serially so the shared module list is never mutated concurrently
+			for (const { scheme, mod, result } of fetched) {
+				if (!result.module) continue;
 
-						// Update the loaded modules with the new version
-						if (existingIndex !== -1) {
-							// Call cleanup method of the existing module before replacing it with the new version
-							this.loadedModules[existingIndex].workers.cleanup?.().catch((error: unknown) => {
-								throw new ProcessError({
-									code: "ProviderCleanupError",
-									message: `An error occurred while cleaning up provider module "${mod.name}" during refresh`,
-									details: isCustomError(error) ? error.details : undefined
-								});
-							});
-							this.loadedModules[existingIndex] = updatedModuleResult.module;
-						} else this.loadedModules.push(updatedModuleResult.module);
-					}
-				}
+				// Update the meta providers manifest
+				meta.providers[scheme] = mod;
+
+				// Check if module exists in the currently loaded modules
+				const existingIndex = this.loadedModules.findIndex((m) => m.meta.name === mod.name);
+
+				// Update the loaded modules with the new version
+				if (existingIndex !== -1) {
+					// Call cleanup method of the existing module before replacing it with the new version
+					this.loadedModules[existingIndex].workers.cleanup?.().catch((error: unknown) => {
+						throw new ProcessError({
+							code: "ProviderCleanupError",
+							message: `An error occurred while cleaning up provider module "${mod.name}" during refresh`,
+							details: isCustomError(error) ? error.details : undefined
+						});
+					});
+					this.loadedModules[existingIndex] = result.module;
+				} else this.loadedModules.push(result.module);
 			}
 		} catch (error) {
 			if (isCustomError(error)) throw error;
@@ -296,6 +305,29 @@ export abstract class ModuleManager {
 		CACHE.set(key, this.metrics, this.moduleCacheTTL);
 	}
 
+	/** Queue a metrics write, coalescing the burst of per-provider updates a single scrape
+	 *  produces into one. Each write also reset the entry's TTL, so writing per provider
+	 *  meant the metrics entry effectively never expired.
+	 */
+	private scheduleSaveMetrics() {
+		if (!this.cacheEnabled || this.metricsFlushTimer) return;
+		this.metricsFlushTimer = setTimeout(() => {
+			this.metricsFlushTimer = null;
+			this.saveMetrics();
+		}, METRICS_FLUSH_DELAY);
+
+		// Don't hold the Node.js process open for a pending metrics write
+		if (typeof this.metricsFlushTimer === "object" && "unref" in this.metricsFlushTimer) this.metricsFlushTimer.unref();
+	}
+
+	/** Write any pending metrics immediately. Called on teardown so a queued flush is not lost. */
+	protected flushMetrics() {
+		if (!this.metricsFlushTimer) return;
+		clearTimeout(this.metricsFlushTimer);
+		this.metricsFlushTimer = null;
+		this.saveMetrics();
+	}
+
 	/** Record one operation outcome for a module and auto-disable it when its
 	 * error rate exceeds the configured threshold (after the minimum sample size).
 	 */
@@ -323,6 +355,6 @@ export abstract class ModuleManager {
 			}
 		}
 
-		this.saveMetrics();
+		this.scheduleSaveMetrics();
 	}
 }

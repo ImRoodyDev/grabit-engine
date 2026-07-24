@@ -73,6 +73,12 @@ export interface GrabitGlobalsOptions {
 	 * provider that decodes binary data.
 	 */
 	buffer?: unknown;
+	/**
+	 * base64 codec used to polyfill `globalThis.btoa` / `globalThis.atob` on
+	 * runtimes that lack them (React Native < 0.74). Pass `require("base-64")`.
+	 * Ignored when the runtime already provides both.
+	 */
+	base64?: { encode: (s: string) => string; decode: (s: string) => string };
 }
 
 /** Result of {@link setupGrabitGlobals} — a readout of what is available. */
@@ -99,8 +105,9 @@ export interface GrabitGlobalsReport {
  * import { setupGrabitGlobals } from "grabit-engine";
  * import QuickCrypto from "react-native-quick-crypto";
  * import { Buffer } from "@craftzdog/react-native-buffer";
+ * import base64 from "base-64";
  *
- * const report = setupGrabitGlobals({ crypto: QuickCrypto, buffer: Buffer });
+ * const report = setupGrabitGlobals({ crypto: QuickCrypto, buffer: Buffer, base64 });
  * if (!report.functionConstructor) {
  *   // Runtime cannot evaluate provider bundles (e.g. eval-restricted engine).
  * }
@@ -126,6 +133,12 @@ export function setupGrabitGlobals(options: GrabitGlobalsOptions = {}): GrabitGl
 
 	const crypto = assign("__grabitCrypto", options.crypto);
 	const buffer = assign("Buffer", options.buffer);
+
+	// Providers decode base64 payloads; RN < 0.74 ships neither btoa nor atob.
+	if (options.base64) {
+		assign("btoa", options.base64.encode);
+		assign("atob", options.base64.decode);
+	}
 
 	let functionConstructor = false;
 	try {

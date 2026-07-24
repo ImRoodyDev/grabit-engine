@@ -125,13 +125,18 @@ describe("calculateMatchScore", () => {
 	// ── Duration scoring ─────────────────────────────────────────────
 
 	describe("duration scoring", () => {
-		it("should add up to 20 points for an exact duration match", () => {
-			// Use a title that doesn't score exactly 100 to avoid floating-point equality issues
+		it("should add the full 20 points for an exact duration match", () => {
 			const withDuration = calculateMatchScore({ title: "The Matrix", duration: "136m" }, makeMovie({ title: "The Matrix", duration: 136 }));
 			const withoutDuration = calculateMatchScore({ title: "The Matrix" }, makeMovie({ title: "The Matrix", duration: 136 }));
-			// Duration adds up to 20 points
-			expect(withDuration - withoutDuration).toBeGreaterThanOrEqual(0);
-			expect(withDuration - withoutDuration).toBeLessThanOrEqual(20);
+			// An exact match must contribute the whole duration component
+			expect(withDuration - withoutDuration).toBeCloseTo(20, 5);
+		});
+
+		it("should scale points down with the duration difference", () => {
+			const base = calculateMatchScore({ title: "The Matrix" }, makeMovie({ duration: 136 }));
+			// 4 minutes off → 20 - 4 = 16 points
+			const closeDuration = calculateMatchScore({ title: "The Matrix", duration: "140m" }, makeMovie({ duration: 136 }));
+			expect(closeDuration - base).toBeCloseTo(16, 5);
 		});
 
 		it("should give fewer points as duration difference increases", () => {
@@ -155,10 +160,8 @@ describe("calculateMatchScore", () => {
 	describe("combined scoring", () => {
 		it("should combine title + year + duration for maximum score", () => {
 			const score = calculateMatchScore({ title: "The Matrix", year: "1999", duration: "136m" }, makeMovie({ duration: 136 }));
-			// title (~100) + year (50) + duration (up to 20)
-			// Note: ParseDuration returns milliseconds while media.duration is in minutes,
-			// so the duration component may not contribute as expected without unit conversion
-			expect(score).toBeCloseTo(150, 0);
+			// title (~100) + year (50) + duration (20) — the documented [0..170] ceiling
+			expect(score).toBeCloseTo(170, 0);
 		});
 
 		it("should give a low score for completely mismatched media", () => {

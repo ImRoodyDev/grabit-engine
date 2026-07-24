@@ -1,14 +1,23 @@
+import {
+	__moduleLoader,
+	__resetPuppeteerPoolForTests,
+	configurePuppeteerPool,
+	puppeteerLoad,
+	releasePuppeteerPool,
+	retainPuppeteerPool
+} from "../../src/core/puppeteer";
+
 const mockConnect = jest.fn();
 
-jest.mock(
-	"puppeteer-real-browser",
-	() => ({
-		connect: (...args: unknown[]) => mockConnect(...args)
-	}),
-	{ virtual: true }
-);
-
-import { __resetPuppeteerPoolForTests, configurePuppeteerPool, puppeteerLoad } from "../../src/core/puppeteer";
+// The source loads puppeteer-real-browser through `new Function("return import(id)")`
+// to hide it from Metro — which also hides it from Jest's module registry, so
+// jest.mock() cannot intercept it. Override the loader seam instead.
+function installMockPuppeteerModule() {
+	__moduleLoader.load = async (id: string) => {
+		if (id !== "puppeteer-real-browser") throw new Error(`Unexpected module load: ${id}`);
+		return { connect: (...args: unknown[]) => mockConnect(...args) };
+	};
+}
 
 function createMockPage() {
 	return {
@@ -44,11 +53,33 @@ function createRequest(overrides: Record<string, unknown> = {}) {
 describe("puppeteer pool", () => {
 	beforeEach(() => {
 		mockConnect.mockReset();
-		__resetPuppeteerPoolForTests();
+		__resetPuppeteerPoolForTests(); // also restores the real loader
+		installMockPuppeteerModule();
 	});
 
 	afterEach(() => {
 		__resetPuppeteerPoolForTests();
+	});
+
+	it("only closes pooled browsers once the last holder releases the pool", async () => {
+		const page = createMockPage();
+		const browser = createMockBrowser();
+		mockConnect.mockResolvedValue({ browser, page });
+
+		// Two managers share the process-wide pool
+		expect(retainPuppeteerPool()).toBe(true); // first holder sizes the pool
+		expect(retainPuppeteerPool()).toBe(false);
+		configurePuppeteerPool({ maxConcurrentBrowsers: 1, minWarmBrowsers: 1, idleBrowserTTL: 60_000 });
+
+		const lease = await puppeteerLoad(new URL("https://example.com"), createRequest());
+		await lease.browser.close(); // returns to the pool, stays warm
+
+		// One manager destroys itself — the other is still using the pool
+		releasePuppeteerPool();
+		expect(browser.close).not.toHaveBeenCalled();
+
+		releasePuppeteerPool();
+		expect(browser.close).toHaveBeenCalledTimes(1);
 	});
 
 	it("reuses a pooled browser across sequential requests", async () => {

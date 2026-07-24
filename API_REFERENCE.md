@@ -95,7 +95,7 @@ The configuration object passed to `GrabitManager.create(config)`.
 | `scrapeConfig.puppeteer.maxConcurrentBrowsers`   | `number`         | ❌       | `2`         | Global cap for real Puppeteer browser processes. Matching requests reuse an existing browser as a new tab when possible.                                                       |
 | `scrapeConfig.puppeteer.minWarmBrowsers`         | `number`         | ❌       | `0`         | Minimum number of idle browsers to keep warm for each browser configuration signature that has already been used.                                                              |
 | `scrapeConfig.puppeteer.idleBrowserTTL`          | `number`         | ❌       | `60_000`    | How long an idle pooled browser stays alive before it is closed, unless it is still required by `minWarmBrowsers`.                                                             |
-| `scrapeConfig.puppeteer.maxBrowserSessionTTL`    | `number`         | ❌       | `600_000`   | Maximum time (ms) a single page lease may stay open before it is auto-released and a warning is logged. Guards against providers that forget to call `browser.close()`.        |
+| `scrapeConfig.puppeteer.maxBrowserSessionTTL`    | `number`         | ❌       | `120_000`   | Maximum time (ms) a single page lease may stay open before it is auto-released and a warning is logged. Guards against providers that forget to call `browser.close()`.        |
 
 `ctx.puppeteer.launch(...)` leases a tab from a manager-owned browser pool. Calling the returned `browser.close()` releases that leased tab. Call `manager.destroy()` to close the underlying browser processes.
 
@@ -634,6 +634,7 @@ Helpers for loading the `github` source outside Node. Exported from the package 
 | -------- | --------- | ------------------------------------------------------------------------------------------------------ |
 | `crypto` | `unknown` | Crypto implementation, exposed as `globalThis.__grabitCrypto`. In RN: `require("react-native-quick-crypto")`. Optional. |
 | `buffer` | `unknown` | Buffer implementation, exposed as `globalThis.Buffer`. In RN: `require("@craftzdog/react-native-buffer").Buffer`. Optional but required for providers that decode binary data — RN has no global `Buffer`. |
+| `base64` | `{ encode, decode }` | base64 codec used to polyfill `globalThis.btoa` / `globalThis.atob` on runtimes that lack them (RN < 0.74). In RN: `require("base-64")`. Ignored when the runtime already provides both. |
 
 **`GrabitGlobalsReport`**
 
@@ -649,8 +650,9 @@ Helpers for loading the `github` source outside Node. Exported from the package 
 import { GrabitManager, moduleResolver, setupGrabitGlobals } from "grabit-engine";
 import QuickCrypto from "react-native-quick-crypto";
 import { Buffer } from "@craftzdog/react-native-buffer";
+import base64 from "base-64";
 
-setupGrabitGlobals({ crypto: QuickCrypto, buffer: Buffer });
+setupGrabitGlobals({ crypto: QuickCrypto, buffer: Buffer, base64 });
 
 const manager = await GrabitManager.create({
 	source: { type: "github", url: "owner/repo", branch: "main", moduleResolver },
@@ -673,20 +675,22 @@ Utilities for handling P.A.C.K.E.R.-obfuscated JavaScript.
 
 ### Crypto (`services/crypto`)
 
-Re-exports Node's built-in `crypto` module as a named export for cross-environment use.
+Re-exports Node's built-in `crypto` module as a named export.
 
-For **React Native**, the native `crypto` module is not available. Install [`react-native-quick-crypto`](https://www.npmjs.com/package/react-native-quick-crypto) as a drop-in polyfill:
+> **Node.js only.** This export is reachable from the Node entry point (`require("grabit-engine")` or an ESM import resolved through the `node` condition). It is deliberately absent from the browser and React Native entry points: it imports the Node built-in `crypto`, which Webpack, Vite and Metro do not polyfill, so a bundle that included it would fail to build.
+
+For **browsers and React Native**, pass a crypto implementation to [`setupGrabitGlobals`](#react-native--browser-helpers-utilsnative) instead. In React Native install [`react-native-quick-crypto`](https://www.npmjs.com/package/react-native-quick-crypto):
 
 ```bash
 npm install react-native-quick-crypto
 ```
 
-This module also polyfills `atob` / `btoa` for environments that don't expose them globally (e.g. React Native < 0.74), using the optional peer dependency [`base-64`](https://www.npmjs.com/package/base-64).
+`atob` / `btoa` are likewise not polyfilled here. Runtimes that lack them (React Native < 0.74) get them from `setupGrabitGlobals({ base64: require("base-64") })`.
 
-GitHub-loaded provider bundles also resolve `Crypto` at runtime from `react-native-quick-crypto`, `crypto`, `globalThis.__grabitCrypto`, or `globalThis.crypto`, so React Native apps should install the polyfill before evaluating remote provider source.
+GitHub-loaded provider bundles resolve `Crypto` at runtime from `react-native-quick-crypto`, `crypto`, `globalThis.__grabitCrypto`, or `globalThis.crypto`, so React Native apps should register the global before evaluating remote provider source.
 
 ```typescript
-import { Crypto } from "grabit-engine";
+import { Crypto } from "grabit-engine"; // Node.js entry point
 
 const hash = Crypto.createHash("md5").update("hello").digest("hex");
 ```

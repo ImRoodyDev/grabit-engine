@@ -30,6 +30,8 @@ export async function providerFetch(request: RequestInfo | URL, fetchOptions: Pr
 
 	const _option = {
 		...options,
+		// Forward the operation's cancel signal so aborting a scrape cancels this fetch.
+		signal: options.signal ?? requester.signal,
 		headers: {
 			...options.headers,
 			...(attachUserAgent && requester.userAgent && { "User-Agent": requester.userAgent })
@@ -59,6 +61,8 @@ export async function providerFetchResponse<TResponse = unknown, TError = unknow
 	const { attachUserAgent = true, attachProxy = true, ...options } = fetchOptions;
 	const _option = {
 		...options,
+		// Forward the operation's cancel signal so aborting a scrape cancels this fetch.
+		signal: options.signal ?? requester.signal,
 		headers: {
 			...options.headers,
 			...(attachUserAgent && requester.userAgent && { "User-Agent": requester.userAgent })

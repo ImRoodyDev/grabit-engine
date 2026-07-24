@@ -26,13 +26,11 @@ const external = [...Object.keys(pkg.dependencies || {}), ...Object.keys(pkg.opt
 	(dep) => !ESM_ONLY.has(dep)
 );
 
-await esbuild.build({
-	entryPoints: [path.join(ROOT, "src", "index.node.ts")],
+const shared = {
 	bundle: true,
 	format: "cjs",
 	platform: "node",
 	target: "node18",
-	outfile: path.join(ROOT, "dist", "cjs", "src", "index.js"),
 	external,
 	// Readable output for debugging
 	minify: false,
@@ -40,4 +38,38 @@ await esbuild.build({
 	keepNames: true,
 	// Source maps for debugging
 	sourcemap: false
+};
+
+await esbuild.build({
+	...shared,
+	entryPoints: [path.join(ROOT, "src", "index.node.ts")],
+	outfile: path.join(ROOT, "dist", "cjs", "src", "index.js")
+});
+
+/**
+ * The React hooks are a separate entry point ("grabit-engine/react") because the main
+ * CJS bundle deliberately excludes them — importing them there would force a hard
+ * require("react") at load time.
+ *
+ * Their runtime imports of the engine are redirected to the main CJS bundle instead of
+ * being inlined: a second inlined copy would carry its own GrabitManager singleton, so
+ * require("grabit-engine") and require("grabit-engine/react") would manage different
+ * providers and different browser pools.
+ */
+const shareEngineRuntime = {
+	name: "share-engine-runtime",
+	setup(build) {
+		build.onResolve({ filter: /\.\.\/(controllers\/manager|types\/ProcessError)\.ts$/ }, () => ({
+			// Relative to dist/cjs/src/hooks/ → dist/cjs/src/index.js
+			path: "../index.js",
+			external: true
+		}));
+	}
+};
+
+await esbuild.build({
+	...shared,
+	entryPoints: [path.join(ROOT, "src", "hooks", "useSources.ts")],
+	outfile: path.join(ROOT, "dist", "cjs", "src", "hooks", "useSources.js"),
+	plugins: [shareEngineRuntime]
 });

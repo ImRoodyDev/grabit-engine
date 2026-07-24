@@ -37,7 +37,7 @@ export type PuppeteerPoolConfig = {
 	 * automatically released and a warning is logged. Guards against providers that
 	 * forget to call `browser.close()`.
 	 *
-	 * @defaultValue `600_000` (10 minutes)
+	 * @defaultValue `120_000` (2 minutes)
 	 */
 	maxBrowserSessionTTL?: number;
 };

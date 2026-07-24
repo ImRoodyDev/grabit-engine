@@ -15,6 +15,10 @@ import { isNode, toInternalManifest } from "../utils/standard.ts";
 import { Logger } from "../utils/logger.ts";
 import { validateProvidersManifest, validateProviderModules } from "../utils/validator.ts";
 import { appFetch } from "./fetcher.ts";
+import pLimit from "p-limit";
+
+/** How many provider bundles are downloaded at once during a cold start. */
+export const PROVIDER_FETCH_CONCURRENCY = 6;
 
 export interface GitHubRepoInfo {
 	owner: string;
@@ -228,6 +232,10 @@ export namespace GithubService {
 	/**
 	 * Fetch and resolve every provider listed in `providers`.
 	 *
+	 * Providers are fetched concurrently: each one is a full HTTPS round-trip, and doing
+	 * them one at a time made a cold start cost `providers × latency` before the manager
+	 * was usable. `modules` is keyed by distinct schemes, so concurrent writes are safe.
+	 *
 	 * @param opts             - GitHub repo + auth info
 	 * @param providers        - scheme → relative folder path (from manifest.json)
 	 * @param moduleResolver   - Optional callback to turn source code into a module.
@@ -240,47 +248,53 @@ export namespace GithubService {
 		moduleResolver?: (scheme: string, sourceCode: string) => Promise<ProviderModule>
 	): Promise<Record<string, ProviderModule | null>> {
 		const modules: Record<string, ProviderModule | null> = {};
+		// Bounded so a large library stays polite to the raw.githubusercontent.com CDN.
+		const limit = pLimit({ concurrency: PROVIDER_FETCH_CONCURRENCY });
 
-		for (const [scheme, manifest] of Object.entries(providers)) {
-			// Try index.js first, fall back to index.ts
-			let sourceCode: string;
-			const fetchPath = `${pathJoin(manifest.dir, scheme)}/index.js`;
-			const fullApiUrl = `https://raw.githubusercontent.com/${opts.owner}/${opts.repo}/${opts.branch}/${opts.rootDir}${fetchPath}`;
-			try {
-				sourceCode = await fetchFileFromGitHub(opts, fetchPath);
-			} catch (error) {
-				Logger.error(
-					`[GithubService] Failed to fetch source for provider "${scheme}":\n` +
-						`  URL: ${fullApiUrl}\n` +
-						`  rootDir: "${opts.rootDir || "(none)"}"\n` +
-						`  manifest.dir: "${manifest.dir ?? "(none)"}"\n` +
-						`  Error: ${error instanceof Error ? error.message : error}`
-				);
-				modules[scheme] = null;
-				continue; // Skip this provider but continue loading others
-			}
+		await Promise.all(
+			Object.entries(providers).map(([scheme, manifest]) =>
+				limit(async () => {
+					// Try index.js first, fall back to index.ts
+					let sourceCode: string;
+					const fetchPath = `${pathJoin(manifest.dir, scheme)}/index.js`;
+					const fullApiUrl = `https://raw.githubusercontent.com/${opts.owner}/${opts.repo}/${opts.branch}/${opts.rootDir}${fetchPath}`;
+					try {
+						sourceCode = await fetchFileFromGitHub(opts, fetchPath);
+					} catch (error) {
+						Logger.error(
+							`[GithubService] Failed to fetch source for provider "${scheme}":\n` +
+								`  URL: ${fullApiUrl}\n` +
+								`  rootDir: "${opts.rootDir || "(none)"}"\n` +
+								`  manifest.dir: "${manifest.dir ?? "(none)"}"\n` +
+								`  Error: ${error instanceof Error ? error.message : error}`
+						);
+						modules[scheme] = null;
+						return; // Skip this provider but continue loading others
+					}
 
-			try {
-				if (moduleResolver) {
-					// User-provided resolver (for browsers / React Native)
-					modules[scheme] = normalizeResolvedProviderModule(await moduleResolver(scheme, sourceCode));
-				} else if (isNode()) {
-					// Default: Node.js temp-file resolver
-					modules[scheme] = await defaultNodeResolver(scheme, sourceCode);
-				}
+					try {
+						if (moduleResolver) {
+							// User-provided resolver (for browsers / React Native)
+							modules[scheme] = normalizeResolvedProviderModule(await moduleResolver(scheme, sourceCode));
+						} else if (isNode()) {
+							// Default: Node.js temp-file resolver
+							modules[scheme] = await defaultNodeResolver(scheme, sourceCode);
+						}
 
-				if (modules[scheme] === null) {
-					Logger.error(`[GithubService] Provider "${scheme}" resolved, but did not export a valid ProviderModule shape.`);
-				} else {
-					// Always ensure meta.scheme reflects the canonical map key regardless
-					// of what the provider bundle declares internally.
-					modules[scheme]!.meta.scheme = scheme;
-				}
-			} catch (error) {
-				Logger.error(`[GithubService] Failed to resolve module for provider "${scheme}": ${error instanceof Error ? error.message : error}`);
-				modules[scheme] = null;
-			}
-		}
+						if (modules[scheme] === null) {
+							Logger.error(`[GithubService] Provider "${scheme}" resolved, but did not export a valid ProviderModule shape.`);
+						} else {
+							// Always ensure meta.scheme reflects the canonical map key regardless
+							// of what the provider bundle declares internally.
+							modules[scheme]!.meta.scheme = scheme;
+						}
+					} catch (error) {
+						Logger.error(`[GithubService] Failed to resolve module for provider "${scheme}": ${error instanceof Error ? error.message : error}`);
+						modules[scheme] = null;
+					}
+				})
+			)
+		);
 
 		return modules;
 	}
@@ -321,9 +335,10 @@ export namespace GithubService {
 		}
 
 		const safeName = scheme.replace(/\//g, "_");
-		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `provider-${safeName}-`));
+		// Async I/O: these run once per provider during startup and used to block the event loop.
+		const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `provider-${safeName}-`));
 		const filePath = path.join(tmpDir, "index.js");
-		fs.writeFileSync(filePath, sourceCode, "utf-8");
+		await fs.promises.writeFile(filePath, sourceCode, "utf-8");
 
 		try {
 			// _import is used here too — the href is runtime-computed so Metro
@@ -348,6 +363,11 @@ export namespace GithubService {
 				});
 			}
 			throw err;
+		} finally {
+			// Node reads the file eagerly during import(), and the module now lives in the
+			// ESM registry — so the directory can go. Without this every provider left a
+			// temp directory behind on every process start, forever.
+			void fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
 		}
 	}
 }

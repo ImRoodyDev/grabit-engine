@@ -2,9 +2,12 @@
 export * from "./controllers/manager.ts";
 export * from "./controllers/provider.ts";
 
-// Service for extension
+// Service for extension.
+// `services/crypto.ts` is intentionally NOT re-exported here: it imports the Node
+// built-in `crypto`, which browser bundlers do not polyfill. It is available from
+// the Node entry point (`index.node.ts`); browsers and React Native supply their own
+// implementation through `setupGrabitGlobals`.
 export * from "./services/unpacker.ts";
-export * from "./services/crypto.ts";
 export * from "./services/tldts.ts";
 
 // Provider Modules

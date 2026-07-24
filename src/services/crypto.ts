@@ -1,45 +1,19 @@
-// // // crypto-wrapper.ts
-// import { isNode } from "../utils/standard";
-// let Crypto: typeof import("crypto");
-// if (isNode() && navigator.product !== "ReactNative") {
-// 	// Node.js
-// 	Crypto = require("crypto");
-// } else {
-// 	// React Native
-// 	try {
-// 		Crypto = require("react-native-quick-crypto") as typeof import("crypto");
-// 	} catch {
-// 		throw new Error("Crypto library not found for React Native. Install react-native-quick-crypto");
-// 	}
-// }
-// export default Crypto;
+// Node-only crypto re-export.
+//
+// This module imports the Node built-in `crypto` at the top level, so it is
+// reachable ONLY from the Node entry points (`index.node.ts` / the CJS bundle).
+// It is deliberately absent from `index.ts` and `index.native.ts`: Webpack 5,
+// Vite and Metro do not polyfill Node built-ins, so a browser or React Native
+// build that resolved this file would fail to bundle.
+//
+// React Native / browser consumers get their crypto implementation through
+// `setupGrabitGlobals({ crypto })` in `utils/native.ts` instead, which takes the
+// implementation as a parameter rather than importing one.
+//
+// The atob/btoa polyfill that used to live here relied on a bare `require()`,
+// which is undefined in ESM — it threw on every load, was swallowed by its own
+// try/catch, and warned that `base-64` was missing even when installed. Pass
+// `base64` to `setupGrabitGlobals` instead.
 
 import Crypto from "crypto";
 export { Crypto };
-import { Logger } from "../utils/logger.ts";
-
-// Polyfill atob / btoa for environments that don't provide them globally
-// (e.g. React Native < 0.74).
-// The `base-64` package is an optional peer dependency; install it when
-// targeting React Native:
-//
-//   npm install base-64
-//   # or
-//   yarn add base-64
-//
-if (typeof globalThis.atob === "undefined" || typeof globalThis.btoa === "undefined") {
-	try {
-		// eslint-disable-next-line @typescript-eslint/no-var-requires
-		const base64 = require("base-64") as { encode: (s: string) => string; decode: (s: string) => string };
-		if (typeof globalThis.btoa === "undefined") {
-			(globalThis as typeof globalThis & { btoa: (s: string) => string }).btoa = base64.encode;
-		}
-		if (typeof globalThis.atob === "undefined") {
-			(globalThis as typeof globalThis & { atob: (s: string) => string }).atob = base64.decode;
-		}
-	} catch {
-		// `base-64` is not installed — atob/btoa will remain unavailable.
-		// Install the optional peer dependency `base-64` if you need this polyfill.
-		Logger.warn("base-64 package not found. atob/btoa functions will not be available in this environment. Install base-64 for support.");
-	}
-}

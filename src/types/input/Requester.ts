@@ -22,6 +22,13 @@ export type ScrapeRequester = {
 	proxyAgent?: HttpsProxyAgent<string> | SocksProxyAgent | HttpProxyAgent<string>;
 	/** Optional User IP address of the requester */
 	userIP?: string;
+	/**
+	 * Optional abort signal for the operation. Set by the manager per scrape and
+	 * forwarded to `context.xhr` fetches so cancelling an operation (e.g. leaving
+	 * the player screen) aborts in-flight provider requests instead of letting
+	 * them run to completion in the background.
+	 */
+	signal?: AbortSignal;
 };
 
 /** Raw Requester information for a media request `(Non-validated)`

@@ -43,25 +43,45 @@ declare module "impit" {
 	}
 }
 
-let _resolvedFetch: UniversalFetch | null = null;
+/** Native fetch, bound once (browser / React Native / Node without a proxy need). */
+let _bareFetch: UniversalFetch | null = null;
+/** Impit clients keyed by proxy URL ("" = no proxy).
+ *  A single shared slot used to hand an unproxied request the client bound to the
+ *  last proxy that was configured, silently routing traffic through a third party.
+ */
+const _impitClients = new Map<string, UniversalFetch>();
+/** Cap on distinct proxy clients kept alive — each one is a native Rust addon instance. */
+const MAX_IMPIT_CLIENTS = 16;
 let _resolvedImpitClass: any = null;
 
-/** Resolves the best available fetch implementation for the current environment.
- * - Native `globalThis.fetch`: used in browsers, React Native, and Node 18+
- * - `node-fetch`: dynamically imported as a fallback for older Node.js environments
+/** The single seam through which the optional native Impit module is loaded.
+ *
+ * `new Function` hides this import() from Metro's static analyzer. A plain
+ * `await import("impit")` would cause Metro to add the native Rust addon to the
+ * bundle graph, crashing the Expo serializer with "The 'to' argument must be of
+ * type string. Received undefined". In React Native, resolveFetch() never reaches
+ * this function because the bare-fetch branch always wins (isNode() === false).
+ *
+ * The same trick hides the import from Jest's module registry, so tests override
+ * `load` here rather than using `jest.mock`.
  */
+export const __moduleLoader = {
+	load: (id: string): Promise<any> => (new Function("i", "return import(i)") as (i: string) => Promise<any>)(id)
+};
+
+/** Test helper: drops every cached fetch implementation. */
+export function __resetFetchClientsForTests(): void {
+	_bareFetch = null;
+	_impitClients.clear();
+	_resolvedImpitClass = null;
+}
+
+/** Resolves the Impit class, loading the optional native module on first use. */
 async function resolveImpitClass() {
 	if (_resolvedImpitClass) return _resolvedImpitClass;
 
 	try {
-		// new Function hides this import() from Metro's static analyzer.
-		// A plain `await import("impit")` would cause Metro to add the native
-		// Rust addon to the bundle graph, crashing the Expo serializer with
-		// "The 'to' argument must be of type string. Received undefined".
-		// In React Native, resolveFetch() never calls this function because
-		// useBareFetch is always true (isNode() === false in RN).
-		const _import = new Function("id", "return import(id)") as (id: string) => Promise<any>;
-		const mod = await _import("impit");
+		const mod = await __moduleLoader.load("impit");
 		// Handle CJS/ESM interop: named export may not be synthesized for CJS modules
 		const ImpitClass = mod.Impit ?? (mod.default as any)?.Impit;
 
@@ -82,38 +102,49 @@ async function resolveImpitClass() {
 		});
 	}
 }
-async function resolveFetch(agent: RequestInit["agent"]): Promise<UniversalFetch> {
-	const useBareFetch = !isNode() || isBrowser();
-	// If fetch is already resolved and either we're in a browser environment
-	//  until an agent is specified (which requires new Impit instance), return the cached fetch
-	if (_resolvedFetch && (useBareFetch || agent == undefined)) return _resolvedFetch;
+/** Resolves the fetch implementation to use for one request.
+ *  Impit clients are cached per proxy URL so a proxied client is never reused for an
+ *  unproxied request — or for a different proxy — and so each proxy pays the
+ *  (expensive) native client construction only once.
+ */
+async function resolveFetch(agent?: RequestInit["agent"]): Promise<UniversalFetch> {
+	const useBareFetch = (!isNode() || isBrowser()) && typeof globalThis.fetch === "function";
 
-	// Use normal fetch if aba
-	if (typeof globalThis.fetch === "function" && useBareFetch) {
-		// Native fetch available — bind to globalThis to preserve context
-		_resolvedFetch = globalThis.fetch.bind(globalThis) as unknown as UniversalFetch;
-	} else {
-		// For Node.js use Impit (Rust-based HTTP client with browser TLS fingerprinting)
-		try {
-			const Impit = await resolveImpitClass();
-			const proxyUrl = extractProxyUrl(agent);
-			const BrowserClient = new Impit({ browser: "firefox", proxyUrl });
-			_resolvedFetch = BrowserClient.fetch.bind(BrowserClient) as unknown as UniversalFetch;
-		} catch (error) {
-			// Re-throw ProcessErrors from resolveImpitClass directly
-			if (error instanceof ProcessError) throw error;
-			throw new ProcessError({
-				code: "FETCH_NOT_AVAILABLE",
-				message:
-					error instanceof Error
-						? `No fetch implementation found: ${error.message}`
-						: "No fetch implementation found. Use an environment with native fetch support or install impit.",
-				expose: false
-			});
-		}
+	// Browsers / React Native: native fetch, bound to globalThis to preserve context
+	if (useBareFetch) {
+		return (_bareFetch ??= globalThis.fetch.bind(globalThis) as unknown as UniversalFetch);
 	}
 
-	return _resolvedFetch;
+	// For Node.js use Impit (Rust-based HTTP client with browser TLS fingerprinting)
+	const proxyUrl = extractProxyUrl(agent) ?? "";
+	const cached = _impitClients.get(proxyUrl);
+	if (cached) return cached;
+
+	try {
+		const Impit = await resolveImpitClass();
+		const BrowserClient = new Impit({ browser: "firefox", proxyUrl: proxyUrl || undefined });
+		const impitFetch = BrowserClient.fetch.bind(BrowserClient) as unknown as UniversalFetch;
+
+		// Evict the oldest client when callers churn through many distinct proxies
+		while (_impitClients.size >= MAX_IMPIT_CLIENTS) {
+			const oldestKey = _impitClients.keys().next().value;
+			if (oldestKey === undefined) break;
+			_impitClients.delete(oldestKey);
+		}
+		_impitClients.set(proxyUrl, impitFetch);
+		return impitFetch;
+	} catch (error) {
+		// Re-throw ProcessErrors from resolveImpitClass directly
+		if (error instanceof ProcessError) throw error;
+		throw new ProcessError({
+			code: "FETCH_NOT_AVAILABLE",
+			message:
+				error instanceof Error
+					? `No fetch implementation found: ${error.message}`
+					: "No fetch implementation found. Use an environment with native fetch support or install impit.",
+			expose: false
+		});
+	}
 }
 function createRequestCacheKey(request: RequestInfo | URL, method: string = "GET"): string {
 	const urlString = typeof request === "string" ? request : request.toString();
@@ -226,6 +257,9 @@ export async function handleResponse<GeneticResponse = any, GeneticError = any>(
 	});
 }
 
+/** Largest response body (in characters) eligible for caching — 256 KB. */
+const MAX_CACHEABLE_BODY = 256 * 1024;
+
 /** Make an application fetch request */
 export async function appFetch(request: RequestInfo | URL, options: RequestInit = {}) {
 	const { cacheTTL, customCacheKey, ...fetchableOptions } = options;
@@ -277,11 +311,23 @@ export async function appFetch(request: RequestInfo | URL, options: RequestInit 
 		// "Body has already been read" errors with runtimes/libraries (e.g. Impit)
 		// whose Response.clone() may not produce fully independent body streams.
 		const serialized = await serializeResponse(response);
-		CACHE.set(cacheKey, serialized, cacheTTL);
+		// The cache is bounded by entry count, not bytes — skip oversized bodies so a
+		// few thousand large scraped pages cannot exhaust memory on a mobile device.
+		if (serialized.body.length <= MAX_CACHEABLE_BODY) CACHE.set(cacheKey, serialized, cacheTTL);
 		return reconstructResponse(serialized);
 	}
 
 	return response;
+}
+
+/** Bridges an external abort signal onto an internal controller. Hermes has no
+ * `AbortSignal.any`, so a timeout controller and a caller's cancel signal are
+ * linked by hand: aborting either aborts the request.
+ */
+function forwardAbort(controller: AbortController, external?: AbortSignal | null): void {
+	if (!external) return;
+	if (external.aborted) return controller.abort();
+	external.addEventListener("abort", () => controller.abort(), { once: true });
 }
 
 /** Fetch with timeout
@@ -294,9 +340,10 @@ export async function appFetch(request: RequestInfo | URL, options: RequestInit 
 export async function fetchWithTimeout(request: RequestInfo | URL, options: RequestTimeoutInit) {
 	const controller = new AbortController();
 	const timeoutId = setTimeout(() => controller.abort(), options.timeout || 1000);
+	forwardAbort(controller, options.signal); // also abort when the caller cancels
 
 	try {
-		const response = await appFetch(request, { signal: controller.signal, ...options });
+		const response = await appFetch(request, { ...options, signal: controller.signal });
 		clearTimeout(timeoutId);
 		return response;
 	} catch (error) {
@@ -315,7 +362,8 @@ export async function fetchWithRetry(request: RequestInfo | URL, options: Reques
 			requestResponse = await appFetch(request, fetchOptions);
 			fetched = true; // Mark as fetched if successful
 		} catch (error) {
-			if (attempt === maxAttempts) {
+			// Don't retry a cancelled request — the caller aborted on purpose.
+			if (fetchOptions.signal?.aborted || attempt === maxAttempts) {
 				throw error; // Rethrow the error if max retries reached
 			}
 			await delay(retryTimeout); // Wait before retrying
@@ -370,7 +418,8 @@ export async function fetchResponseWithRetry<GeneticResponse = any, GeneticError
 			requestResponse = await fetchResponse<GeneticResponse, GeneticError>(request, fetchOptions);
 			fetched = true; // Mark as fetched if successful
 		} catch (error) {
-			if (attempt === maxAttempts) {
+			// Don't retry a cancelled request — the caller aborted on purpose.
+			if (fetchOptions.signal?.aborted || attempt === maxAttempts) {
 				throw error; // Rethrow the error if max retries reached
 			}
 			await delay(retryTimeout); // Wait before retrying
@@ -399,6 +448,7 @@ export async function fetchResponseWithRetry<GeneticResponse = any, GeneticError
 export async function fetchResponseWithTimeout<GeneticResponse = any, GeneticError = any>(request: RequestInfo | URL, options: RequestTimeoutInit) {
 	const controller = new AbortController();
 	const timeoutId = setTimeout(() => controller.abort(), options.timeout);
+	forwardAbort(controller, options.signal); // also abort when the caller cancels
 
 	try {
 		const response = await fetchResponse<GeneticResponse, GeneticError>(request, {
@@ -427,7 +477,7 @@ export type RequestRetryInit = RequestInit & {
 	maxAttempts?: number;
 	retryTimeout?: number;
 };
-export type RequestTimeoutInit = Omit<RequestInit, "signal"> & {
+export type RequestTimeoutInit = RequestInit & {
 	timeout?: number;
 };
 export type RequestInfo = globalThis.RequestInfo;

@@ -86,9 +86,15 @@ Puppeteer is an **optional peer dependency** for providers that need headless br
 npm install base-64
 ```
 
-React Native versions below 0.74 do not expose `atob` / `btoa` as globals. This library automatically polyfills them when it detects they are missing, using the `base-64` package as an **optional peer dependency**.
+React Native versions below 0.74 do not expose `atob` / `btoa` as globals. Pass the `base-64` package to `setupGrabitGlobals` and the library installs them for you:
 
-If you are targeting React Native, install `base-64` alongside this package. On Node.js and modern browsers the built-in `atob` / `btoa` are used and no extra package is needed.
+```ts
+import base64 from "base-64";
+
+setupGrabitGlobals({ base64 });
+```
+
+On Node.js and modern browsers the built-in `atob` / `btoa` are used and no extra package is needed.
 
 </details>
 
@@ -110,19 +116,20 @@ If your providers use `Crypto` and you load them in React Native, install `react
 React Native has no dynamic `import()` from a string and no Node built-ins, so the `github` source needs two pieces of glue. The engine ships both, so you don't have to write them by hand:
 
 - **`moduleResolver`** — evaluates a fetched provider bundle into a module. Pass it to the `github` source.
-- **`setupGrabitGlobals`** — registers the globals bundled providers read at runtime (`crypto` and `Buffer`), and reports what the runtime supports.
+- **`setupGrabitGlobals`** — registers the globals bundled providers read at runtime (`crypto`, `Buffer`, and `atob`/`btoa`), and reports what the runtime supports.
 
 ```bash
-npm install react-native-quick-crypto @craftzdog/react-native-buffer
+npm install react-native-quick-crypto @craftzdog/react-native-buffer base-64
 ```
 
 ```tsx
 import { GrabitManager, moduleResolver, setupGrabitGlobals } from "grabit-engine";
 import QuickCrypto from "react-native-quick-crypto";
 import { Buffer } from "@craftzdog/react-native-buffer";
+import base64 from "base-64";
 
 // Call once, before creating a manager. Existing globals are never overwritten.
-const report = setupGrabitGlobals({ crypto: QuickCrypto, buffer: Buffer });
+const report = setupGrabitGlobals({ crypto: QuickCrypto, buffer: Buffer, base64 });
 if (!report.functionConstructor) {
 	// The runtime cannot evaluate provider bundles (eval-restricted engine).
 }
@@ -133,7 +140,7 @@ const manager = await GrabitManager.create({
 });
 ```
 
-`setupGrabitGlobals` returns `{ crypto, buffer, atob, functionConstructor, errors }` — a boolean readout plus any assignment errors, useful for an on-device diagnostics panel. Both `crypto` and `buffer` are optional; omit them if your providers don't use them. You must also alias `crypto` in `metro.config.js` for `react-native-quick-crypto`'s own imports — see its setup docs.
+`setupGrabitGlobals` returns `{ crypto, buffer, atob, functionConstructor, errors }` — a boolean readout plus any assignment errors, useful for an on-device diagnostics panel. All three options are optional; omit them if your providers don't use them. `base64` is only needed on React Native < 0.74, which has no global `atob`/`btoa`. You must also alias `crypto` in `metro.config.js` for `react-native-quick-crypto`'s own imports — see its setup docs.
 
 ---
 
@@ -425,7 +432,7 @@ try {
 
 > **Important:** `browser.close()` does **not** kill the browser process — the pool intercepts the call and only releases your tab. The underlying browser stays warm for reuse by the next request. Always call `browser.close()` in a `finally` block to avoid leaking tabs.
 >
-> If a provider forgets to call `browser.close()`, the pool will automatically release the tab after `maxBrowserSessionTTL` (default 10 minutes) and log a warning that always prints regardless of debug mode.
+> If a provider forgets to call `browser.close()`, the pool will automatically release the tab after `maxBrowserSessionTTL` (default 2 minutes) and log a warning that always prints regardless of debug mode.
 
 ### `subtitle.ts` — Subtitle Handler
 
@@ -841,13 +848,13 @@ When a provider uses Puppeteer, `test-provider` disables headless mode automatic
 <tr>
 <td><code>scrapeConfig.puppeteer.maxBrowserSessionTTL</code></td>
 <td><code>number</code></td>
-<td><code>600000</code></td>
+<td><code>120000</code></td>
 <td>Maximum time a single page lease may stay open before it is automatically released and a warning is logged. Guards against providers that forget to call <code>browser.close()</code>.</td>
 </tr>
 </tbody>
 </table>
 
-When a provider calls <code>ctx.puppeteer.launch(...)</code>, the manager now leases a tab from a shared browser pool. Calling the returned <code>browser.close()</code> releases that tab back to the pool; calling <code>manager.destroy()</code> closes the real browser processes. If a provider forgets to release its tab, the pool will auto-release it after <code>maxBrowserSessionTTL</code> (default 10 minutes) and log a warning.
+When a provider calls <code>ctx.puppeteer.launch(...)</code>, the manager now leases a tab from a shared browser pool. Calling the returned <code>browser.close()</code> releases that tab back to the pool; calling <code>manager.destroy()</code> closes the real browser processes. If a provider forgets to release its tab, the pool will auto-release it after <code>maxBrowserSessionTTL</code> (default 2 minutes) and log a warning.
 
 By default, <code>successQuorum</code> resolves immediately once enough providers return results. Enable <code>waitForActiveProvidersAfterQuorum</code> if you want the manager to keep waiting for providers that were already running when quorum was reached, while still cancelling anything that had not started yet.
 
@@ -888,9 +895,10 @@ Providers that fail too often (more than `errorThresholdRate` after `minOperatio
 import { GrabitManager, moduleResolver, setupGrabitGlobals } from "grabit-engine";
 import QuickCrypto from "react-native-quick-crypto";
 import { Buffer } from "@craftzdog/react-native-buffer";
+import base64 from "base-64";
 
-// Register crypto/Buffer for provider bundles before creating the manager.
-setupGrabitGlobals({ crypto: QuickCrypto, buffer: Buffer });
+// Register crypto/Buffer/base64 for provider bundles before creating the manager.
+setupGrabitGlobals({ crypto: QuickCrypto, buffer: Buffer, base64 });
 
 const manager = await GrabitManager.create({
 	source: {

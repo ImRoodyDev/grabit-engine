@@ -18,7 +18,10 @@ const DEFAULT_POOL_CONFIG: Required<PuppeteerPoolConfig> = {
 	maxConcurrentBrowsers: 2,
 	minWarmBrowsers: 0,
 	idleBrowserTTL: 60_000,
-	maxBrowserSessionTTL: 600_000
+	// Kept close to the default operation timeout (15s) rather than generous: with only
+	// 2 browsers in the pool, a provider that forgets browser.close() holds half of it
+	// for the whole TTL.
+	maxBrowserSessionTTL: 120_000
 };
 
 type BrowserPoolEntry = {
@@ -48,6 +51,8 @@ let browserEntryCounter = 0;
 let totalBrowserCount = 0;
 const browserPool = new Map<string, Set<BrowserPoolEntry>>();
 const pendingBrowserWaiters: Array<() => void> = [];
+/** How many managers currently share this process-wide pool. See {@link retainPuppeteerPool}. */
+let poolHolders = 0;
 
 export async function puppeteerLoad(url: URL, request: PuppeteerLoadRequest): Promise<PuppeteerLoadResult> {
 	// Check if running in a Node.js environment
@@ -198,6 +203,28 @@ export function configurePuppeteerPool(config?: PuppeteerPoolConfig): void {
 	}
 }
 
+/** Registers one holder of the shared pool.
+ *  Returns `true` when this is the first holder, i.e. when it is safe to apply its
+ *  pool sizing — a later holder would otherwise resize the pool underneath managers
+ *  that are already using it.
+ */
+export function retainPuppeteerPool(): boolean {
+	return ++poolHolders === 1;
+}
+
+/** Releases one holder. The pool is process-global, so browsers are only closed once
+ *  the last holder lets go — otherwise one manager's `destroy()` would kill every
+ *  other manager's browsers.
+ */
+export function releasePuppeteerPool(): void {
+	poolHolders = Math.max(0, poolHolders - 1);
+	if (poolHolders === 0) {
+		shutdownPuppeteerPool();
+		return;
+	}
+	Logger.debug(`Puppeteer pool still held by ${poolHolders} manager(s) — skipping shutdown`);
+}
+
 /** Closes all pooled browsers and wakes any callers waiting for a browser slot. */
 export function shutdownPuppeteerPool(): void {
 	const entries = Array.from(getAllBrowserEntries());
@@ -218,17 +245,27 @@ export function __resetPuppeteerPoolForTests(): void {
 	shutdownPuppeteerPool();
 	browserPoolConfig = { ...DEFAULT_POOL_CONFIG };
 	puppeteerModule = null;
+	poolHolders = 0;
+	__moduleLoader.load = defaultModuleLoad;
 }
+
+/** Hides the optional import from Metro's static analyzer so React Native builds
+ *  don't try to resolve a Node-only package at bundle time.
+ */
+const defaultModuleLoad = (id: string): Promise<any> => (new Function("i", "return import(i)") as (i: string) => Promise<any>)(id);
+
+/** The single seam through which the optional Puppeteer dependency is loaded.
+ *  `new Function` also hides the import from Jest's module registry, so `jest.mock`
+ *  cannot intercept it — tests override `load` here instead.
+ */
+export const __moduleLoader = { load: defaultModuleLoad };
 
 /** Lazily imports the optional Puppeteer dependency only when Node-side scraping needs it. */
 async function getPuppeteerModule(): Promise<PuppeteerModule> {
 	if (puppeteerModule) return puppeteerModule;
 
 	try {
-		// Hide this optional import from Metro's static analyzer so React Native builds
-		// don't try to resolve a Node-only package at bundle time.
-		const _import = new Function("id", "return import(id)") as (id: string) => Promise<any>;
-		const mod = await _import("puppeteer-real-browser");
+		const mod = await __moduleLoader.load("puppeteer-real-browser");
 		const runtimeModule = (mod?.default ?? mod) as PuppeteerModule;
 		if (typeof runtimeModule?.connect !== "function") {
 			throw new Error("puppeteer-real-browser module does not expose a connect() function");

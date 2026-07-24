@@ -66,9 +66,11 @@ describe("GrabitManager › initialization", () => {
 		expect(results.length).toBeGreaterThanOrEqual(1);
 	});
 
-	it("should configure and tear down the puppeteer pool from manager lifecycle", async () => {
+	it("should configure and release the puppeteer pool from manager lifecycle", async () => {
 		const configureSpy = jest.spyOn(puppeteerCore, "configurePuppeteerPool");
-		const shutdownSpy = jest.spyOn(puppeteerCore, "shutdownPuppeteerPool").mockImplementation(() => undefined);
+		// destroy() releases its hold on the shared pool; the pool itself only shuts
+		// down once no manager is holding it.
+		const releaseSpy = jest.spyOn(puppeteerCore, "releasePuppeteerPool");
 
 		const manager = await GrabitManager.create(
 			createRegistryConfig(
@@ -92,9 +94,9 @@ describe("GrabitManager › initialization", () => {
 		});
 
 		manager.destroy();
-		expect(shutdownSpy).toHaveBeenCalled();
+		expect(releaseSpy).toHaveBeenCalled();
 
 		configureSpy.mockRestore();
-		shutdownSpy.mockRestore();
+		releaseSpy.mockRestore();
 	});
 });
