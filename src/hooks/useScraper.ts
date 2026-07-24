@@ -5,17 +5,7 @@ import type { MediaSource, SubtitleSource } from "../types/output/MediaSources.t
 import type { ScrapeType } from "../types/hooks/useSources.ts";
 import { ProcessError } from "../types/ProcessError.ts";
 import type { SourcesError } from "../types/hooks/useSources.ts";
-
-function sourceKey(source: { scheme: string; providerName: string; fileName: string }): string {
-	return `${source.scheme}\0${source.providerName}\0${source.fileName}`;
-}
-
-function mergeSources<T extends { scheme: string; providerName: string; fileName: string }>(existing: T[], incoming: T[]): T[] {
-	const map = new Map<string, T>();
-	for (const s of existing) map.set(sourceKey(s), s);
-	for (const s of incoming) map.set(sourceKey(s), s);
-	return Array.from(map.values());
-}
+import { mergeSources } from "../utils/internal.ts";
 
 export interface UseScraperOptions {
 	manager: GrabitManager | null;
