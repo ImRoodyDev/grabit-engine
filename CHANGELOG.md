@@ -46,6 +46,7 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- `debug: false` not silencing errors. `DebugLogger.error` printed unconditionally, so a consumer that had explicitly opted out still got a console full of routine scraping failures — an unreachable provider host is normal and already handled, with the provider skipped and its metrics recorded. All levels now respect the flag; `alwaysWarn` remains the one that never is, for misconfigured providers and leaked browser leases. Failures stay observable through `getMetricsReport()`, thrown `ProcessError`s, and the `error` returned by the hooks.
 - A proxy agent contaminating the process-wide fetch client. One global slot held a client bound to a specific proxy, and the cache guard treated "no agent" as a hit — so after any proxied scrape, every later unproxied request (TMDB, GitHub manifests) was silently routed through that third party. Clients are now keyed by proxy URL.
 - `require("grabit-engine/react")` crashing with `ERR_REQUIRE_ESM` on Node < 22 — the `require` condition pointed into `dist/esm`. The hooks entry now builds to CJS, with its engine imports redirected to the main bundle so both share one singleton.
 - Duration scoring silently disabled by operator precedence: `ParseDuration(d) ?? 0 / 60000` only ever divided the fallback zero, so the signal scored 0 for every input including exact matches.

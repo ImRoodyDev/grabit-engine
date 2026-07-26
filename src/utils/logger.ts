@@ -1,7 +1,7 @@
 /**
  * Simple project-scoped logger utilities.
- * - Exports `CNPLogger` (default) and `ProxyLogger` for proxy-specific logs.
- * - Non-error levels are silenced when the logger is configured for production.
+ * - Every level is silenced when the logger is configured for production
+ *   (`debug: false`), except `alwaysWarn`.
  */
 // type LogLevel = "info" | "warn" | "error" | "debug";
 
@@ -9,7 +9,9 @@
  * Lightweight logger class used across the project.
  * - When constructed with `debug: true`, logs are enabled (non-production mode).
  * - `enableDebugging` can toggle logging at runtime.
- * - `info`, `warn`, `debug` respect the production flag; `error` always logs.
+ * - `info`, `warn`, `debug` and `error` all respect the production flag.
+ * - `alwaysWarn` is the only level that ignores it, for problems a consumer must
+ *   see regardless — a misconfigured provider, or a leaked browser lease.
  */
 class DebugLogger {
 	private isProduction: boolean = false;
@@ -93,10 +95,20 @@ class DebugLogger {
 	}
 
 	/**
-	 * Always log an error message.
+	 * Log an error message when debugging is enabled.
+	 *
+	 * Every `error()` call site in this package reports a condition that is already
+	 * handled — a provider that could not be reached is skipped, its metrics recorded,
+	 * and the scrape continues. Printing those unconditionally meant `debug: false`
+	 * still filled a consumer's console with routine scraping noise. Failures remain
+	 * observable through `getMetricsReport()`, thrown `ProcessError`s, and the `error`
+	 * returned by the hooks. Use {@link alwaysWarn} for problems that must never be
+	 * silenced, such as a misconfigured provider.
 	 */
 	public error(message: string, ...optionalParams: unknown[]): void {
-		console.error(this.format("error", message), ...optionalParams);
+		if (!this.isProduction) {
+			console.error(this.format("error", message), ...optionalParams);
+		}
 	}
 
 	/**
