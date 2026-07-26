@@ -16,8 +16,8 @@
  * side logging is unchanged. Runtimes that expose neither signal stay quiet.
  */
 export const isDevelopment = (): boolean => {
-	const reactNativeDev = (globalThis as { __DEV__?: boolean }).__DEV__;
-	if (typeof reactNativeDev === "boolean") return reactNativeDev;
+	// const reactNativeDev = (globalThis as { __DEV__?: boolean }).__DEV__;
+	// if (typeof reactNativeDev === "boolean") return reactNativeDev;
 
 	if (typeof process !== "undefined") {
 		return (process.env?.NODE_ENV ?? process.env?.ENV) !== "production";
