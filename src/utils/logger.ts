@@ -139,6 +139,6 @@ class DebugLogger {
 /**
  * Default LOGGER FOR PACKAGE!!!.
  */
-const _Logger = new DebugLogger(false, "GRABIT-ENGINE");
+const _Logger = new DebugLogger((process.env?.NODE_ENV ?? process.env?.ENV) !== "production", "GRABIT-ENGINE");
 
 export { _Logger as Logger, DebugLogger };
