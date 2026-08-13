@@ -14,6 +14,13 @@
 //
 // Node consumers never reach this file: package `exports` resolve the `node`
 // condition to `index.node.*`, which re-exports the real Node `crypto`.
+//
+// The value is a runtime proxy, but it is typed as the Node `crypto` module so
+// consumers keep full IntelliSense (`createHash`, `pbkdf2Sync`, `createDecipheriv`,
+// …). The `import type` below is erased at compile time, so no Node built-in is
+// pulled into a browser / Metro bundle.
+
+import type NodeCrypto from "crypto";
 
 /** Finds a Node-compatible crypto implementation on the global object, if any. */
 function resolveCryptoImpl(): any {
@@ -39,9 +46,10 @@ const MISSING_MESSAGE =
  * Property access (`Crypto.createHash(...)`, `Crypto.pbkdf2Sync(...)`,
  * `Crypto.createDecipheriv(...)`, …) resolves the host implementation on first use,
  * so it works even when the host installs its crypto after this module is imported.
- * Typed as `any` so consumers are not forced to depend on `@types/node`.
+ * Typed as the Node `crypto` module for full IntelliSense (the `import type` is
+ * erased at runtime, so nothing Node-specific is bundled).
  */
-export const Crypto: any = new Proxy(
+export const Crypto = new Proxy(
 	{},
 	{
 		get(_target, property) {
@@ -57,4 +65,4 @@ export const Crypto: any = new Proxy(
 			return impl ? property in impl : false;
 		},
 	},
-);
+) as unknown as typeof NodeCrypto;
