@@ -26,10 +26,11 @@ import { ScrapeRequester, ProviderContext, ProviderFetchOptions, isHttpError } f
  * @defaults - `attachUserAgent`: true, `attachProxy`: true
  */
 export async function providerFetch(request: RequestInfo | URL, fetchOptions: ProviderFetchOptions, requester: ScrapeRequester) {
-	const { attachUserAgent = true, attachProxy = true, ...options } = fetchOptions;
+	const { attachUserAgent = true, attachProxy = true, useImpit = true, ...options } = fetchOptions;
 
 	const _option = {
 		...options,
+		useImpit,
 		// Forward the operation's cancel signal so aborting a scrape cancels this fetch.
 		signal: options.signal ?? requester.signal,
 		headers: {

@@ -38,6 +38,21 @@ beforeEach(() => {
 afterAll(() => CACHE.stopAutoCleanup());
 
 describe("resolveFetch – proxy isolation", () => {
+	it("should use native global fetch when useImpit is false even on Node", async () => {
+		const nativeFetch = jest.fn().mockResolvedValue(new Response("native", { status: 200 }));
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = nativeFetch as typeof fetch;
+		__moduleLoader.load = jest.fn(async () => {
+			throw new Error("Impit should not be loaded when useImpit is false");
+		});
+
+		await appFetch("https://example.com/native", { useImpit: false });
+
+		expect(nativeFetch).toHaveBeenCalledTimes(1);
+		expect(__moduleLoader.load).not.toHaveBeenCalled();
+		globalThis.fetch = originalFetch;
+	});
+
 	it("should not route an unproxied request through a previously used proxy", async () => {
 		const agent = proxyAgent("http://proxy-a.example:8080");
 

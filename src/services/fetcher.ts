@@ -40,6 +40,8 @@ declare module "impit" {
 		customCacheKey?: string;
 		/** Number of milliseconds to cache the response */
 		cacheTTL?: number;
+		/** Use Impit instead of native fetch */
+		useImpit?: boolean;
 	}
 }
 
@@ -122,7 +124,12 @@ async function resolveFetch(agent?: RequestInit["agent"]): Promise<UniversalFetc
 
 	try {
 		const Impit = await resolveImpitClass();
-		const BrowserClient = new Impit({ browser: "firefox", proxyUrl: proxyUrl || undefined });
+		const BrowserClient = new Impit({
+			browser: "firefox",
+			proxyUrl: proxyUrl || undefined,
+			// Avoid failing on expired ssl
+			ignoreTlsErrors: true
+		});
 		const impitFetch = BrowserClient.fetch.bind(BrowserClient) as unknown as UniversalFetch;
 
 		// Evict the oldest client when callers churn through many distinct proxies
@@ -262,7 +269,7 @@ const MAX_CACHEABLE_BODY = 256 * 1024;
 
 /** Make an application fetch request */
 export async function appFetch(request: RequestInfo | URL, options: RequestInit = {}) {
-	const { cacheTTL, customCacheKey, ...fetchableOptions } = options;
+	const { cacheTTL, customCacheKey, useImpit = true, ...fetchableOptions } = options;
 
 	// Resolve cache key (includes HTTP method to prevent collisions between GET/POST for the same URL)
 	const method = (options.method ?? "GET").toUpperCase();
@@ -275,7 +282,7 @@ export async function appFetch(request: RequestInfo | URL, options: RequestInit 
 		if (cached) return reconstructResponse(cached);
 	}
 
-	const fetch = await resolveFetch(fetchableOptions.agent);
+	const fetch: UniversalFetch = useImpit ? await resolveFetch(fetchableOptions.agent) : (global.fetch.bind(globalThis) as unknown as UniversalFetch);
 
 	// Set default options for proper cookie handling
 	const defaultOptions: RequestInit = {

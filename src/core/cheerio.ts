@@ -46,7 +46,8 @@ export async function cheerioLoad(page: URL, request: CheerioLoadRequest, contex
 				...(request.extraHeaders || {})
 			},
 			agent: request.proxyAgent,
-			clean: true
+			clean: true,
+			useImpit: request.useImpit
 		};
 
 		// Fetch the page content using the fetchResponse utility, passing in the appropriate headers and proxy agent if provided
