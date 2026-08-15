@@ -326,6 +326,14 @@ export async function fetchWithTimeout(request: RequestInfo | URL, options: Requ
 	}
 }
 
+/** Fetch with retry mechanism
+ * @see {@link appFetch} for fetch behavior
+ * @default "{maxAttempts : 1}" 1 retries
+ * @default "{retryTimeout : 800}" 800ms between retries
+ * - Retries the request a specified number of times with delay
+ * - If the request fails after all retries, it throws the last encountered error
+ * - Useful for handling transient network issues or temporary server unavailability
+ */
 export async function fetchWithRetry(request: RequestInfo | URL, options: RequestRetryInit) {
 	const { maxAttempts = 0, retryTimeout = 800, ...fetchOptions } = options;
 	let attempt = 0;

@@ -1,5 +1,6 @@
 import cheerioCore from "../core/cheerio.ts";
-import puppeteerCore, { configurePuppeteerPool, disableHeadlessMode, releasePuppeteerPool, retainPuppeteerPool } from "../core/puppeteer.ts";
+import puppeteerCore, { disableHeadlessMode } from "../core/puppeteer.ts";
+import { configurePuppeteerPool, releasePuppeteerPool, retainPuppeteerPool } from "./puppeteerPool.ts";
 import xhrCore from "../core/xhr.ts";
 import { solveChallenge } from "../core/solver.ts";
 import { ScrapeRequester, MediaSource, SubtitleSource, ProviderModule, ProviderModuleManifest, RawScrapeRequester, resolveFetchControls } from "../types/index.ts";

@@ -1,5 +1,5 @@
 import { GrabitManager } from "../../../src/controllers/manager";
-import * as puppeteerCore from "../../../src/core/puppeteer";
+import * as puppeteerPool from "../../../src/controllers/puppeteerPool";
 import { resetManager, GRAB_REQUEST, createMockModule, createRegistryConfig, mockMediaSource } from "./helpers";
 
 jest.mock("../../../src/services/tmdb", () => ({
@@ -67,10 +67,10 @@ describe("GrabitManager › initialization", () => {
 	});
 
 	it("should configure and release the puppeteer pool from manager lifecycle", async () => {
-		const configureSpy = jest.spyOn(puppeteerCore, "configurePuppeteerPool");
+		const configureSpy = jest.spyOn(puppeteerPool, "configurePuppeteerPool");
 		// destroy() releases its hold on the shared pool; the pool itself only shuts
 		// down once no manager is holding it.
-		const releaseSpy = jest.spyOn(puppeteerCore, "releasePuppeteerPool");
+		const releaseSpy = jest.spyOn(puppeteerPool, "releasePuppeteerPool");
 
 		const manager = await GrabitManager.create(
 			createRegistryConfig(

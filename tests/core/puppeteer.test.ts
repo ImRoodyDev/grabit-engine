@@ -1,11 +1,11 @@
+import { puppeteerLoad } from "../../src/core/puppeteer";
 import {
 	__moduleLoader,
 	__resetPuppeteerPoolForTests,
 	configurePuppeteerPool,
-	puppeteerLoad,
 	releasePuppeteerPool,
 	retainPuppeteerPool
-} from "../../src/core/puppeteer";
+} from "../../src/controllers/puppeteerPool";
 
 const mockConnect = jest.fn();
 
