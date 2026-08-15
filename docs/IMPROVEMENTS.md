@@ -41,17 +41,29 @@ so a provider can state exactly how a source must be consumed.
 
 ---
 
-## 3. Proxy + proxy auth (host config, not an `xhr` option)
+## 3. Proxy (host config, not an `xhr` option)
 
-**Why:** proxy and proxy auth are host concerns — they come from the app, never from providers.
+**Why:** proxy is a host concern — it comes from the app, never from providers. A single `proxy`
+field takes one of two shapes: a **proxy agent** (`{ agent, auth? }`) or a **URL resolver**
+(`{ resolver, headers? }`) that rewrites each request to a proxy endpoint.
 
-- `src/types/models/Manager.ts` — `ProviderManagerConfig.proxy?: { agent?, auth? }` — a default
-  proxy used when a scrape request omits its own.
-- `src/types/input/Requester.ts` — `ScrapeRequester.proxyAuth?` (alongside `proxyAgent`).
-- `src/controllers/manager.ts` — every requester falls back to `config.proxy.agent` / `.auth`
-  when the request doesn't supply one.
-- `src/core/xhr.ts` — `providerFetch` sends `Proxy-Authorization` from `requester.proxyAuth`
-  (gated by `attachProxy`). It is **not** a provider-facing `ctx.xhr` option.
+- `src/types/input/Proxy.ts` — `ProxyConfig = ProxyAgentConfig | ProxyResolverConfig`, plus the
+  `isResolverProxy` / `proxyAgentOf` guards.
+- `src/types/models/Manager.ts` — `ProviderManagerConfig.proxy?: ProxyConfig` — a default proxy
+  used when a scrape request omits its own.
+- `src/types/input/Requester.ts` — `ScrapeRequester.proxy?: ProxyConfig` (replaces the old
+  `proxyAgent` / `proxyAuth` pair).
+- `src/controllers/manager.ts` — every requester falls back to `config.proxy` when the request
+  doesn't supply one.
+- `src/core/xhr.ts` — `providerFetch` / `providerFetchResponse` just forward `proxy: requester.proxy`
+  as an `appFetch` option (no `agent` / `Proxy-Authorization` handled here). Providers can't opt out;
+  it is **not** a provider-facing `ctx.xhr` option.
+- `src/services/fetcher.ts` — `appFetch` takes a `proxy?: ProxyConfig` option and applies it all in
+  one place: an agent sets the dispatcher (+ `Proxy-Authorization`); a resolver rewrites **only the
+  dispatched URL** and attaches its `headers`, so the cache key, cookie jar and rate-limit window
+  stay bound to the logical target host (never the proxy endpoint).
+- `src/core/puppeteer.ts` — only agent proxies map to a browser proxy (resolver proxies are
+  HTTP-only).
 
 ---
 

@@ -104,9 +104,10 @@ See [Provider Sources](docs/PROVIDER_SOURCES.md) for GitHub/local sources and
 
 Recent additions — each is opt-in and documented in its own guide:
 
-- **[HTTP hardening](docs/HTTP.md)** — `ctx.xhr` gains a cookie jar, per-host concurrency,
-  `429` rate-limit handling, and request coalescing (proxy + auth are host config on the
-  manager — see [Configuration → Proxy](docs/CONFIGURATION.md#proxy)).
+- **[HTTP hardening](docs/HTTP.md)** — `ctx.xhr` gains a cookie jar, plus per-host concurrency,
+  `429` rate-limit handling, and request coalescing (on by default from `config.xhr`). Proxy is
+  host config on the manager — a proxy agent or a URL resolver — see
+  [Configuration → Proxy](docs/CONFIGURATION.md#proxy).
 - **[Challenge solver](docs/CHALLENGE_SOLVER.md)** — `ctx.solveChallenge(url, …)` (puppeteer on
   Node; inject a hidden RN WebView or FlareSolverr via `setChallengeSolver`).
 - **[Source flags](docs/SOURCE_FLAGS.md)** — `xhr.flags: SourceFlag[]` (replaces

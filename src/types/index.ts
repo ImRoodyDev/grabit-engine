@@ -10,6 +10,7 @@ export * from "./models/Modules.ts";
 
 // Input and Output Types
 export * from "./input/Media.ts";
+export * from "./input/Proxy.ts";
 export * from "./input/Requester.ts";
 export * from "./output/MediaSources.ts";
 

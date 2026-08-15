@@ -192,25 +192,44 @@ Providers that fail too often (more than `errorThresholdRate` after `minOperatio
 ## Proxy
 
 Route provider requests through a proxy. Configure a **default** on the manager; a scrape
-request can override it per call. Proxy config is host-owned — providers / `ctx.xhr` never
+request can override it via `proxy`. Proxy config is host-owned — providers / `ctx.xhr` never
 receive proxy credentials.
+
+A single `proxy` field takes one of two shapes:
+
+- **Proxy agent** — `{ agent, auth? }`. Routes through an http/https/socks agent; `auth` is sent
+  as a `Proxy-Authorization` header (URL-embedded `user:pass@` creds work through the agent).
+- **URL resolver** — `{ resolver, headers? }`. Rewrites each request to a proxy endpoint that
+  fetches the target for you (e.g. a web proxy that takes the target as `?url=`). `resolver(url,
+  { method, headers, body })` receives the **target** headers (UA/Referer/cookies) to forward and
+  returns the endpoint URL. The actual request to the proxy endpoint carries **only** the resolver's
+  own `headers` (its API key/auth) — kept separate from the target headers, never mixed.
 
 ```typescript
 import { HttpsProxyAgent } from "https-proxy-agent";
 
+// Agent-based
 const manager = await GrabitManager.create({
   source: { /* … */ },
   proxy: {
-    // URL-embedded user:pass creds work here
     agent: new HttpsProxyAgent("http://user:pass@proxy.example:8080"),
-    // optional: sent as a Proxy-Authorization header (header-authenticating proxies)
-    auth: "Bearer <token>"
+    auth: "Bearer <token>" // optional Proxy-Authorization header
+  }
+});
+
+// Resolver-based (URL-rewriting web proxy)
+const manager2 = await GrabitManager.create({
+  source: { /* … */ },
+  proxy: {
+    resolver: (url) => `https://proxy.example/get?url=${encodeURIComponent(String(url))}`,
+    headers: { "x-api-key": "<token>" }
   }
 });
 
 // Per scrape request — overrides the default; falls back to it when omitted:
-await manager.getStreams({ media, targetLanguageISO: "en", proxyAgent, proxyAuth });
+await manager.getStreams({ media, targetLanguageISO: "en", proxy });
 ```
 
-The engine attaches the proxy (and `Proxy-Authorization` when `auth` / `proxyAuth` is set) to
-every provider request via the requester.
+The engine applies the proxy to every provider request via the requester — an agent proxy sets
+the dispatcher (and `Proxy-Authorization` when `auth` is set); a resolver proxy rewrites the URL
+and attaches its `headers`. Only agent proxies also apply to `ctx.puppeteer` (browser) sessions.

@@ -117,9 +117,9 @@ describe("puppeteer pool", () => {
 
 		configurePuppeteerPool({ maxConcurrentBrowsers: 1, minWarmBrowsers: 0, idleBrowserTTL: 0 });
 
-		const first = await puppeteerLoad(new URL("https://example.com/a"), createRequest({ proxyAgent: { proxy: { host: "proxy-a", port: 8080 } } }));
+		const first = await puppeteerLoad(new URL("https://example.com/a"), createRequest({ proxy: { agent: { proxy: { host: "proxy-a", port: 8080 } } } }));
 
-		const secondPromise = puppeteerLoad(new URL("https://example.com/b"), createRequest({ proxyAgent: { proxy: { host: "proxy-b", port: 8081 } } }));
+		const secondPromise = puppeteerLoad(new URL("https://example.com/b"), createRequest({ proxy: { agent: { proxy: { host: "proxy-b", port: 8081 } } } }));
 
 		await Promise.resolve();
 		expect(mockConnect).toHaveBeenCalledTimes(1);

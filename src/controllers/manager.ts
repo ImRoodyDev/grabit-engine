@@ -266,9 +266,8 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 			...rawRequester,
 			targetLanguageISO: rawRequester.targetLanguageISO.split("-")[0].toLowerCase(),
 			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester),
-			// Fall back to the manager's default proxy/auth when the request omits one.
-			proxyAgent: rawRequester.proxyAgent ?? this.config.proxy?.agent,
-			proxyAuth: rawRequester.proxyAuth ?? this.config.proxy?.auth
+			// Fall back to the manager's default proxy when the request omits one.
+			proxy: rawRequester.proxy ?? this.config.proxy
 		};
 
 		const providers = this.getProvidersByRequest(providerType, requester);
@@ -452,9 +451,8 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 			...rawRequester,
 			targetLanguageISO: rawRequester.targetLanguageISO.split("-")[0].toLowerCase(),
 			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester),
-			// Fall back to the manager's default proxy/auth when the request omits one.
-			proxyAgent: rawRequester.proxyAgent ?? this.config.proxy?.agent,
-			proxyAuth: rawRequester.proxyAuth ?? this.config.proxy?.auth
+			// Fall back to the manager's default proxy when the request omits one.
+			proxy: rawRequester.proxy ?? this.config.proxy
 		};
 
 		const results = await this.createOperation([module], (mod, _limiter, signal) =>
@@ -478,9 +476,8 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 			...rawRequester,
 			targetLanguageISO: rawRequester.targetLanguageISO.split("-")[0].toLowerCase(),
 			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester),
-			// Fall back to the manager's default proxy/auth when the request omits one.
-			proxyAgent: rawRequester.proxyAgent ?? this.config.proxy?.agent,
-			proxyAuth: rawRequester.proxyAuth ?? this.config.proxy?.auth
+			// Fall back to the manager's default proxy when the request omits one.
+			proxy: rawRequester.proxy ?? this.config.proxy
 		};
 
 		const results = await this.createOperation([module], (mod, _limiter, signal) =>
@@ -503,9 +500,8 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 			...rawRequester,
 			targetLanguageISO: rawRequester.targetLanguageISO.split("-")[0].toLowerCase(),
 			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester),
-			// Fall back to the manager's default proxy/auth when the request omits one.
-			proxyAgent: rawRequester.proxyAgent ?? this.config.proxy?.agent,
-			proxyAuth: rawRequester.proxyAuth ?? this.config.proxy?.auth
+			// Fall back to the manager's default proxy when the request omits one.
+			proxy: rawRequester.proxy ?? this.config.proxy
 		};
 		return module.workers.resolveLazy(id, GrabitManager.context, requester);
 	}

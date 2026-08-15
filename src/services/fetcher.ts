@@ -20,6 +20,7 @@ import type { HttpProxyAgent } from "http-proxy-agent";
 import type { HttpsProxyAgent } from "https-proxy-agent";
 import type { SocksProxyAgent } from "socks-proxy-agent";
 
+import { ProxyConfig, isResolverProxy, proxyAgentOf } from "../types/input/Proxy.ts";
 import { CACHE } from "./cache.ts";
 import { CookieJar, hostLimiter, rateLimitedFor, noteRateLimit, parseRetryAfter } from "./httpControls.ts";
 import {
@@ -63,6 +64,11 @@ declare module "impit" {
 		honorRateLimit?: boolean;
 		/** Dedupe identical in-flight cacheable GETs into one request (provider default on). */
 		coalesce?: boolean;
+		/** Proxy applied at dispatch: an agent (`{ agent, auth? }`) sets the dispatcher and a
+		 *  `Proxy-Authorization` header; a resolver (`{ resolver, headers? }`) rewrites the URL to a
+		 *  proxy endpoint and attaches its headers. The rewrite is dispatch-only, so cache key /
+		 *  cookie jar / rate-limit stay bound to the logical target host. */
+		proxy?: ProxyConfig;
 	}
 }
 
@@ -181,7 +187,13 @@ async function resolveFetch(agent?: RequestInit["agent"]): Promise<UniversalFetc
 
 /** Make an application fetch request */
 export async function appFetch(request: RequestInfo | URL, options: RequestInit = {}) {
-	const { cacheTTL, customCacheKey, useImpit = true, cookieJar, maxHostConcurrency, honorRateLimit, coalesce, ...fetchableOptions } = options;
+	const { cacheTTL, customCacheKey, useImpit = true, cookieJar, maxHostConcurrency, honorRateLimit, coalesce, proxy, ...fetchableOptions } = options;
+
+	// Resolve the proxy: an agent sets the dispatcher (proxy agent wins over an explicit `agent`),
+	// a resolver rewrites the URL at dispatch and both may contribute request headers.
+	const resolverProxy = isResolverProxy(proxy) ? proxy : undefined;
+	const agentProxy = proxy && !isResolverProxy(proxy) ? proxy : undefined;
+	const agent = proxyAgentOf(proxy) ?? fetchableOptions.agent;
 
 	// Resolve cache key (includes HTTP method to prevent collisions between GET/POST for the same URL)
 	const method = (options.method ?? "GET").toUpperCase();
@@ -211,39 +223,48 @@ export async function appFetch(request: RequestInfo | URL, options: RequestInit 
 		}
 	}
 
-	const fetch: UniversalFetch = useImpit ? await resolveFetch(fetchableOptions.agent) : (global.fetch.bind(globalThis) as unknown as UniversalFetch);
+	// Resolve fetch instance
+	const fetch: UniversalFetch = useImpit ? await resolveFetch(agent) : (global.fetch.bind(globalThis) as unknown as UniversalFetch);
 
 	// Set default options for proper cookie handling
-	const defaultOptions: RequestInit = {
+	const targetDefaultOptions: RequestInit = {
 		method: "GET",
 		headers: {
 			"Content-Type": "application/json",
 			Accept: "application/json"
 		}
 	};
-
-	// Merge headers, then layer the cookie-jar on top.
-	const headers = normalizeHeaders(
+	// Target request headers (UA, provider headers, cookies). An agent proxy adds its
+	// Proxy-Authorization here since the request still travels to the target through the tunnel.
+	const targetHeaders = normalizeHeaders(
 		fetchableOptions.clean
-			? ((fetchableOptions.headers as Record<string, string>) ?? {})
+			? { ...((fetchableOptions.headers as Record<string, string>) ?? {}), ...(agentProxy?.auth && { "Proxy-Authorization": agentProxy.auth }) }
 			: {
-					...(defaultOptions.headers as Record<string, string>),
-					...((fetchableOptions.headers as Record<string, string>) || {})
+					...(targetDefaultOptions.headers as Record<string, string>),
+					...((fetchableOptions.headers as Record<string, string>) || {}),
+					...(agentProxy?.auth && { "Proxy-Authorization": agentProxy.auth })
 				}
 	) as Record<string, string>;
 
 	if (cookieJar && host) {
 		const jarCookie = cookieJar.header(host);
-		if (jarCookie) headers.cookie = headers.cookie ? `${headers.cookie}; ${jarCookie}` : jarCookie;
+		if (jarCookie) targetHeaders.cookie = targetHeaders.cookie ? `${targetHeaders.cookie}; ${jarCookie}` : jarCookie;
 	}
 
-	// Combine default options with user-provider options, ensuring headers are normalized and cookies are included
-	const mergedOptions: RequestInit = { ...defaultOptions, ...fetchableOptions, headers };
+	// Resolver proxy: the request goes to the PROXY endpoint, so the wire carries the proxy's OWN
+	// headers only. The target headers are handed to the resolver (kept separate) to forward.
+	const dispatch = resolverProxy
+		? resolverProxy.resolver(request, { method, headers: targetHeaders, body: fetchableOptions.body as unknown as BodyInit | null | undefined })
+		: request;
+	const headers = resolverProxy ? (normalizeHeaders(resolverProxy.headers ?? {}) as Record<string, string>) : targetHeaders;
+
+	// Combine default options with user-provider options; apply the resolved headers/proxy agent last.
+	const mergedOptions: RequestInit = resolverProxy ? { headers } : { ...targetDefaultOptions, ...fetchableOptions, headers, agent };
 
 	// One real fetch, optionally gated by a per-host limiter, plus
 	// cookie capture and 429 back-off recording afterwards.
 	const runFetch = async (): Promise<Response> => {
-		const doFetch = () => fetch(request, mergedOptions);
+		const doFetch = () => fetch(dispatch, mergedOptions);
 		const limiter = maxHostConcurrency && host ? hostLimiter(host, maxHostConcurrency) : null;
 		const response = limiter ? await limiter(doFetch) : await doFetch();
 		if (cookieJar && host) cookieJar.setFromResponse(host, response.headers);

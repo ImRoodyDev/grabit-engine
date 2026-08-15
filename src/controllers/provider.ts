@@ -155,7 +155,7 @@ async function validateMediaSources(sources: MediaSource[], requester: ScrapeReq
 		sources.map(async (source) => {
 			const url = typeof source.playlist === "string" ? source.playlist : source.playlist[0]?.source;
 			if (!url) return null;
-			const { ok } = await context.xhr.status(url, { attachUserAgent: true, attachProxy: true, headers: source.xhr.headers }, requester);
+			const { ok } = await context.xhr.status(url, { attachUserAgent: true, headers: source.xhr.headers }, requester);
 			return ok ? source : null;
 		})
 	);
@@ -170,7 +170,7 @@ async function validateSubtitleSources(sources: SubtitleSource[], requester: Scr
 	const results = await Promise.all(
 		sources.map(async (source) => {
 			if (!source.url) return null;
-			const { ok } = await context.xhr.status(source.url, { attachUserAgent: true, attachProxy: true, headers: source.xhr.headers }, requester);
+			const { ok } = await context.xhr.status(source.url, { attachUserAgent: true, headers: source.xhr.headers }, requester);
 			return ok ? source : null;
 		})
 	);

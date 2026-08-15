@@ -19,6 +19,9 @@ export * from "./models/provider.ts";
 export * from "./types/index.native.ts";
 export { RequestInfo, RequestInit, Response } from "./services/fetcher.ts";
 
+// Pluggable challenge solver — host injects one for RN WebView / FlareSolverr.
+export { setChallengeSolver } from "./core/solver.ts";
+
 // React hooks (optional — requires React as a peer dependency)
 export { useSources } from "./hooks/useSources.ts";
 export * from "./types/hooks/useSources.ts";

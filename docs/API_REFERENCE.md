@@ -218,7 +218,7 @@ The request object accepted by the manager's `getStreams()` and `getSubtitles()`
 | `media`             | `RequesterMovieMedia \| RequesterSerieMedia \| ChannelMedia` | ✅       | The movie, show, or channel you want to scrape. Can be a **partial** object — only `type` + `tmdbId` are required for movies; `type` + `tmdbId` + `season` + `episode` for series. TMDB fills the rest. |
 | `targetLanguageISO` | `string`                                                     | ✅       | Language code like `"en"` or `"fr"`. Used to fetch localized titles from TMDB.                                                                                                                          |
 | `userAgent`         | `string`                                                     | ❌       | Custom user-agent string for requests.                                                                                                                                                                  |
-| `proxyAgent`        | `HttpsProxyAgent \| SocksProxyAgent \| HttpProxyAgent`       | ❌       | Optional proxy for routing requests.                                                                                                                                                                    |
+| `proxy`             | `ProxyConfig` (`{ agent, auth? }` or `{ resolver, headers? }`) | ❌       | Optional proxy — a proxy agent, or a URL resolver that rewrites requests to a proxy endpoint. See [Configuration → Proxy](CONFIGURATION.md#proxy).                                                       |
 | `userIP`            | `string`                                                     | ❌       | Optional user IP address of the requester.                                                                                                                                                              |
 
 ### Examples
@@ -341,9 +341,9 @@ Options accepted by `ctx.xhr.fetch` / `ctx.xhr.fetchResponse` / `ctx.xhr.status`
 | Field             | Type      | Required | Default | Description                                                         |
 | ----------------- | --------- | -------- | ------- | ------------------------------------------------------------------- |
 | `attachUserAgent` | `boolean` | ❌       | `false` | Attach the requester's `User-Agent` header to the request.          |
-| `attachProxy`     | `boolean` | ❌       | `true`  | Route the request through the requester's proxy if one is provided. |
 
-> Also accepts all fields from `RequestInit`, `RequestRetryInit`, and `RequestTimeoutInit`.
+> The requester's proxy (if any) is always applied — providers can't opt out. Also accepts all
+> fields from `RequestInit`, `RequestRetryInit`, and `RequestTimeoutInit`.
 
 ---
 

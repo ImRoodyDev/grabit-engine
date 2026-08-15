@@ -1,5 +1,5 @@
 import { PuppeteerBrowser, PuppeteerLoadRequest, PuppeteerLoadResult, PuppeteerPage, PuppeteerPoolConfig } from "../types/models/Puppeteer.ts";
-import { ProcessError, ProviderContext } from "../types/index.ts";
+import { ProcessError, ProviderContext, proxyAgentOf } from "../types/index.ts";
 import { Logger } from "../utils/logger.ts";
 import { isNode } from "../utils/standard.ts";
 
@@ -77,11 +77,11 @@ export async function puppeteerLoad(url: URL, request: PuppeteerLoadRequest): Pr
 		disableXvfb: false,
 		ignoreAllFlags: false,
 		headless: HEADLESS,
-		proxy: requester.proxyAgent && {
-			host: requester.proxyAgent.proxy.host as string,
-			port: requester.proxyAgent.proxy.port as number,
-			password: requester.proxyAgent.proxy.password
-		},
+		// Only agent proxies map to a browser proxy; resolver proxies are HTTP-only.
+		proxy: (() => {
+			const agent = proxyAgentOf(requester.proxy);
+			return agent && { host: agent.proxy.host as string, port: agent.proxy.port as number, password: agent.proxy.password };
+		})(),
 		...puppeteerOptions
 	};
 	const { browser, page, release } = await acquireBrowserSession(connectOptions);

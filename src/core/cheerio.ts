@@ -37,7 +37,7 @@ export const BrowserHeader = {
  */
 export async function cheerioLoad(page: URL, request: CheerioLoadRequest, context: ProviderContext["xhr"]): Promise<CheerioLoadResult> {
 	try {
-		// Prepare request options, including headers and proxy agent if provided by the requester
+		// Prepare request options; proxy is applied centrally by providerFetch from requester.proxy.
 		const requestOptions: RequestInit = {
 			method: "GET",
 			headers: {
@@ -45,7 +45,6 @@ export async function cheerioLoad(page: URL, request: CheerioLoadRequest, contex
 				...(request.userAgent && { "User-Agent": request.userAgent }),
 				...(request.extraHeaders || {})
 			},
-			agent: request.proxyAgent,
 			clean: true,
 			useImpit: request.useImpit
 		};

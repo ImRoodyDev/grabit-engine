@@ -1,7 +1,5 @@
-import type { HttpsProxyAgent } from "https-proxy-agent";
-import type { SocksProxyAgent } from "socks-proxy-agent";
-import type { HttpProxyAgent } from "http-proxy-agent";
 import type { Media, MovieMedia, SerieMedia, ChannelMedia } from "./Media.ts";
+import type { ProxyConfig } from "./Proxy.ts";
 import type { TProviderFetchControls } from "../models/Provider.ts";
 
 /** Requester information for a media request
@@ -19,10 +17,9 @@ export type ScrapeRequester = {
 	 * This will be used to pass into the provider context xhr for provider handlers, allowing them to make requests with the same user agent as the requester. This can help with providers that have user agent-based restrictions or optimizations.
 	 */
 	userAgent?: string;
-	/** Optional proxy agent for making requests through a proxy */
-	proxyAgent?: HttpsProxyAgent<string> | SocksProxyAgent | HttpProxyAgent<string>;
-	/** Optional Proxy-Authorization header value (host-supplied; for header-authenticating proxies) */
-	proxyAuth?: string;
+	/** Optional proxy for making requests through a proxy — either a proxy agent
+	 *  (`{ agent, auth? }`) or a URL resolver (`{ resolver, headers? }`). */
+	proxy?: ProxyConfig;
 	/** Optional User IP address of the requester */
 	userIP?: string;
 	/**
@@ -52,10 +49,9 @@ export type RawScrapeRequester = {
 	 * This will be used to pass into the provider context xhr for provider handlers, allowing them to make requests with the same user agent as the requester. This can help with providers that have user agent-based restrictions or optimizations.
 	 */
 	userAgent?: string;
-	/** Optional proxy agent for making requests through a proxy */
-	proxyAgent?: HttpsProxyAgent<string> | SocksProxyAgent | HttpProxyAgent<string>;
-	/** Optional Proxy-Authorization header value (host-supplied; for header-authenticating proxies) */
-	proxyAuth?: string;
+	/** Optional proxy for making requests through a proxy — either a proxy agent
+	 *  (`{ agent, auth? }`) or a URL resolver (`{ resolver, headers? }`). */
+	proxy?: ProxyConfig;
 	/** Optional User IP address of the requester */
 	userIP?: string;
 };
