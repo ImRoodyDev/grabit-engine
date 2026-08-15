@@ -201,9 +201,11 @@ A single `proxy` field takes one of two shapes:
   as a `Proxy-Authorization` header (URL-embedded `user:pass@` creds work through the agent).
 - **URL resolver** — `{ resolver, headers? }`. Rewrites each request to a proxy endpoint that
   fetches the target for you (e.g. a web proxy that takes the target as `?url=`). `resolver(url,
-  { method, headers, body })` receives the **target** headers (UA/Referer/cookies) to forward and
-  returns the endpoint URL. The actual request to the proxy endpoint carries **only** the resolver's
-  own `headers` (its API key/auth) — kept separate from the target headers, never mixed.
+  { method, headers, body })` receives the **target** request (method, UA/Referer/cookies, body) so
+  it can encode them into the endpoint however the proxy expects, and returns the endpoint URL.
+  The actual request to that endpoint is a plain **`GET`** carrying **only** the resolver's own
+  `headers` (its API key/auth) plus the abort signal — the target headers/method/body are never put
+  on the wire, only handed to the resolver.
 
 ```typescript
 import { HttpsProxyAgent } from "https-proxy-agent";

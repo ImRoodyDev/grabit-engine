@@ -43,7 +43,7 @@ declare module "impit" {
 	// Extend the existing RequestInit interface to include custom properties
 	interface RequestInit {
 		/** Clean request with no defualt headers options attached
-		 * default headers inclue "Content-Type": "application/json" and "Accept": "application/json"
+		 * default headers include "Content-Type": "application/json" and "Accept": "application/json"
 		 * - When set to true, the fetch request will not include the default headers and will only use the headers provided in the options
 		 * - Useful for making requests that require custom headers or no headers at all, without being overridden by default values
 		 */
@@ -258,10 +258,13 @@ export async function appFetch(request: RequestInfo | URL, options: RequestInit 
 		: request;
 	const headers = resolverProxy ? (normalizeHeaders(resolverProxy.headers ?? {}) as Record<string, string>) : targetHeaders;
 
-	// Combine default options with user-provider options; apply the resolved headers/proxy agent last.
-	const mergedOptions: RequestInit = resolverProxy ? { headers } : { ...targetDefaultOptions, ...fetchableOptions, headers, agent };
+	// Resolver proxy: hit the endpoint with a plain GET carrying only the proxy's own headers —
+	// the target method/headers/body were handed to the resolver to encode. Keep the abort signal.
+	// Otherwise: keep the request's method/body, apply target headers + the resolved proxy agent.
+	const mergedOptions: RequestInit = resolverProxy
+		? { method: "GET", headers, signal: fetchableOptions.signal }
+		: { ...targetDefaultOptions, ...fetchableOptions, headers, agent };
 
-	// One real fetch, optionally gated by a per-host limiter, plus
 	// cookie capture and 429 back-off recording afterwards.
 	const runFetch = async (): Promise<Response> => {
 		const doFetch = () => fetch(dispatch, mergedOptions);
