@@ -2,6 +2,7 @@ import type * as cheerio from "cheerio";
 import type { cheerioLoad, cheerioSortResults } from "../../core/cheerio.ts";
 import type { fetchStatus, providerFetch, providerFetchResponse, providerHandleResponse } from "../../core/xhr.ts";
 import type { puppeteerLoad } from "../../core/puppeteer.ts";
+import type { solveChallenge } from "../../core/solver.ts";
 import { DebugLogger } from "../../utils/logger.ts";
 
 /**
@@ -99,6 +100,12 @@ export type ProviderContext = {
 		status: typeof fetchStatus;
 	};
 
+	/**
+	 * Solve a Cloudflare / anti-bot interstitial. Uses the host-injected
+	 * solver when set (RN hidden WebView / FlareSolverr), else the Node puppeteer
+	 * pool. Reuse the returned cookies + userAgent on the next `xhr` hops.
+	 */
+	solveChallenge: typeof solveChallenge;
 	/**
 	 * Puppeteer library for headless browser automation
 	 * Optional: May not be available in all environments (e.g., client-side)

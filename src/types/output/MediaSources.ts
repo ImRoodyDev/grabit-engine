@@ -4,6 +4,18 @@
  * The `SourceProvider` interface defines the structure for both media and subtitle providers, including the scheme, provider name, language, format, and CORS policy details.
  * The `InternalMediaSource` and `InternalSubtitleSource` types are derived from the `MediaSource` and `SubtitleSource` types, respectively, with certain properties omitted or made optional for internal use.
  */
+/**
+ * Playback/consumption constraints on a resolved source. Replaces the old
+ * `haveCorsPolicy` boolean — providers set the flags that apply, host acts on them.
+ */
+export type SourceFlag =
+	| "CORS_BLOCKED" // direct browser fetch blocked by CORS; route via a proxy
+	| "IP_LOCKED" // URL bound to the scraper IP; play from the same IP/proxy
+	| "GEO_BLOCKED" // region-restricted origin
+	| "REFERER_LOCKED" // needs the Referer from `xhr.headers` to play
+	| "PROXY_ONLY" // only playable through a proxy
+	| "EXTERNAL"; // hand off to an external player/browser
+
 export interface SourceProvider<T = string> {
 	scheme: string;
 	providerName: string;
@@ -11,7 +23,8 @@ export interface SourceProvider<T = string> {
 	format: T;
 	fileName: string;
 	xhr: {
-		haveCorsPolicy: boolean;
+		/** Consumption hints for the host (see {@link SourceFlag}). */
+		flags: SourceFlag[];
 		headers: Record<string, string>;
 	};
 }
@@ -48,5 +61,16 @@ export type SubtitleSource = SourceProvider<"srt" | "vtt"> & {
 	url: string;
 };
 
-export type InternalMediaSource = Omit<MediaSource, "providerName" | "scheme" | "format"> & Partial<Pick<MediaSource, "format">>;
+/**
+ * Lazy source: return an unresolved handle and let the host resolve the
+ * final URL only when the user hits play. `id` is opaque to the host and passed back
+ * to the provider's optional `resolveLazy(id, ctx)`.
+ */
+export type LazySource = { id: string; label?: string };
+
+export type InternalMediaSource = Omit<MediaSource, "providerName" | "scheme" | "format"> &
+	Partial<Pick<MediaSource, "format">> & {
+		/** When set, the host defers resolving `playlist` to the provider on play. */
+		lazy?: LazySource;
+	};
 export type InternalSubtitleSource = Omit<SubtitleSource, "providerName" | "scheme">;

@@ -1,7 +1,8 @@
 import cheerioCore from "../core/cheerio.ts";
 import puppeteerCore, { configurePuppeteerPool, disableHeadlessMode, releasePuppeteerPool, retainPuppeteerPool } from "../core/puppeteer.ts";
 import xhrCore from "../core/xhr.ts";
-import { ScrapeRequester, MediaSource, SubtitleSource, ProviderModule, ProviderModuleManifest, RawScrapeRequester } from "../types/index.ts";
+import { solveChallenge } from "../core/solver.ts";
+import { ScrapeRequester, MediaSource, SubtitleSource, ProviderModule, ProviderModuleManifest, RawScrapeRequester, resolveFetchControls } from "../types/index.ts";
 import { ProviderContext } from "../types/models/Context.ts";
 import { ProviderManagerConfig, IProviderManagerWorkers } from "../types/models/Manager.ts";
 import { DebugLogger, Logger } from "../utils/logger.ts";
@@ -115,6 +116,7 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 		return {
 			xhr: xhrCore,
 			cheerio: cheerioCore,
+			solveChallenge,
 			puppeteer: puppeteerCore,
 			log: this.logger
 		};
@@ -263,7 +265,10 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 		const requester: ScrapeRequester = {
 			...rawRequester,
 			targetLanguageISO: rawRequester.targetLanguageISO.split("-")[0].toLowerCase(),
-			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester)
+			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester),
+			// Fall back to the manager's default proxy/auth when the request omits one.
+			proxyAgent: rawRequester.proxyAgent ?? this.config.proxy?.agent,
+			proxyAuth: rawRequester.proxyAuth ?? this.config.proxy?.auth
 		};
 
 		const providers = this.getProvidersByRequest(providerType, requester);
@@ -287,8 +292,15 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 				mediaByLanguage.set(moduleLang, media);
 			}
 
-			// Build a per-invocation copy to avoid mutating the shared requester across concurrent operations
-			const localRequester: ScrapeRequester = { ...requester, media, targetLanguageISO: moduleLang, signal };
+			// Build a per-invocation copy to avoid mutating the shared requester across concurrent operations.
+			// Fetch controls come from the provider config (concurrency/rate-limit/coalesce on by default).
+			const localRequester: ScrapeRequester = {
+				...requester,
+				media,
+				targetLanguageISO: moduleLang,
+				signal,
+				fetchControls: resolveFetchControls(module.provider.config.xhr)
+			};
 			GrabitManager.logger.debug(`[${formatTimestamp()}] Dispatching ${providerType} scrape to provider "${module.provider.config.scheme}"`, {
 				targetLanguageISO: localRequester.targetLanguageISO,
 				media: localRequester.media
@@ -439,7 +451,10 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 		const requester: ScrapeRequester = {
 			...rawRequester,
 			targetLanguageISO: rawRequester.targetLanguageISO.split("-")[0].toLowerCase(),
-			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester)
+			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester),
+			// Fall back to the manager's default proxy/auth when the request omits one.
+			proxyAgent: rawRequester.proxyAgent ?? this.config.proxy?.agent,
+			proxyAuth: rawRequester.proxyAuth ?? this.config.proxy?.auth
 		};
 
 		const results = await this.createOperation([module], (mod, _limiter, signal) =>
@@ -462,12 +477,36 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 		const requester: ScrapeRequester = {
 			...rawRequester,
 			targetLanguageISO: rawRequester.targetLanguageISO.split("-")[0].toLowerCase(),
-			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester)
+			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester),
+			// Fall back to the manager's default proxy/auth when the request omits one.
+			proxyAgent: rawRequester.proxyAgent ?? this.config.proxy?.agent,
+			proxyAuth: rawRequester.proxyAuth ?? this.config.proxy?.auth
 		};
 
 		const results = await this.createOperation([module], (mod, _limiter, signal) =>
 			mod.workers.getSubtitles!({ ...requester, signal }, GrabitManager.context)
 		);
 		return sortByTargetLanguage(results, requester.targetLanguageISO);
+	}
+
+	/**
+	 * Resolve a lazy source on play. `id` comes from `source.lazy.id`;
+	 * returns the fully-resolved source, or null when it can't be resolved.
+	 */
+	public async resolveLazySource(scheme: string, id: string, rawRequester: RawScrapeRequester): Promise<MediaSource | null> {
+		const module = this.moduleByScheme(scheme);
+		if (!module?.workers.resolveLazy) {
+			GrabitManager.logger.warn(`Provider "${scheme}" does not implement resolveLazy`);
+			return null;
+		}
+		const requester: ScrapeRequester = {
+			...rawRequester,
+			targetLanguageISO: rawRequester.targetLanguageISO.split("-")[0].toLowerCase(),
+			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester),
+			// Fall back to the manager's default proxy/auth when the request omits one.
+			proxyAgent: rawRequester.proxyAgent ?? this.config.proxy?.agent,
+			proxyAuth: rawRequester.proxyAuth ?? this.config.proxy?.auth
+		};
+		return module.workers.resolveLazy(id, GrabitManager.context, requester);
 	}
 }

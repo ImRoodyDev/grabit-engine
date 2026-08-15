@@ -3,18 +3,22 @@ export * from "./controllers/manager.ts";
 export * from "./controllers/provider.ts";
 
 // Service for extension.
-// `services/crypto.ts` (the raw Node built-in) is intentionally NOT re-exported
-// here: it imports Node's `crypto`, which browser bundlers do not polyfill. Instead
-// we export the browser/React-Native-safe `Crypto` accessor, which resolves the
-// implementation lazily from a host-provided global (`setupGrabitGlobals`) and never
-// references a Node built-in at the top level. Node consumers get the real Node
-// `crypto` via the `node` export condition (`index.node.ts`).
-export { Crypto } from "./services/cryptoUniversal.ts";
+// The browser / React-Native-safe `Crypto` accessor resolves the implementation
+// lazily from a host-provided global (`setupGrabitGlobals`) and never references a
+// Node built-in at the top level. Node consumers get the real Node `crypto` via the
+// `node` export condition (`index.node.ts`).
+export { CryptoUniversal as Crypto } from "./services/crypto.ts";
 export * from "./services/unpacker.ts";
 export * from "./services/tldts.ts";
 
 // Provider Modules
 export * from "./models/provider.ts";
+
+// HTTP hardening (cookie jar, per-host limits, rate-limit).
+export { CookieJar } from "./services/httpControls.ts";
+
+// Pluggable challenge solver — host injects one for RN WebView / FlareSolverr.
+export { setChallengeSolver } from "./core/solver.ts";
 
 // Types
 export * from "./types/index.ts";

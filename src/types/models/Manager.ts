@@ -1,3 +1,6 @@
+import type { HttpsProxyAgent } from "https-proxy-agent";
+import type { SocksProxyAgent } from "socks-proxy-agent";
+import type { HttpProxyAgent } from "http-proxy-agent";
 import { ScrapeRequester, RawScrapeRequester } from "../input/Requester.ts";
 import { MediaSource, SubtitleSource } from "../output/MediaSources.ts";
 import type { PuppeteerPoolConfig } from "./Puppeteer.ts";
@@ -158,6 +161,17 @@ export type ProviderManagerConfig = {
 
 	/** Whether to enable debug mode for the provider manager, which can include additional logging and error information to help with development and troubleshooting. */
 	debug?: boolean;
+
+	/**
+	 * Default proxy for provider requests, applied when a scrape request does not
+	 * supply its own `proxyAgent` / `proxyAuth`. Host-configured — providers never
+	 * set this. `auth` is sent as a `Proxy-Authorization` header for proxies that
+	 * authenticate by header (URL-embedded `user:pass@` creds work via `agent`).
+	 */
+	proxy?: {
+		agent?: HttpsProxyAgent<string> | SocksProxyAgent | HttpProxyAgent<string>;
+		auth?: string;
+	};
 
 	/** Throw on validation errors instead of warning (default: false) */
 	strict?: boolean;

@@ -69,6 +69,9 @@ export interface IProviderModuleWorkers {
 	/** Grabs subtitles for a given requester */
 	getSubtitles?(requester: ScrapeRequester, context: ProviderContext): Promise<SubtitleSource[]>;
 
+	/** Resolves a lazy source's final URL on play; `id` comes from `source.lazy.id`. */
+	resolveLazy?(id: string, context: ProviderContext, requester: ScrapeRequester): Promise<MediaSource | null>;
+
 	/** Optional cleanup method to release resources or perform any necessary cleanup tasks when the provider module is unloaded or the manager is shut down. */
 	cleanup?(): Promise<void>;
 }
@@ -78,6 +81,9 @@ export type InternalIProviderModuleWorkers = {
 	getStreams?(requester: ScrapeRequester, context: ProviderContext): Promise<InternalMediaSource[]>;
 	/** Grabs subtitles for a given requester */
 	getSubtitles?(requester: ScrapeRequester, context: ProviderContext): Promise<InternalSubtitleSource[]>;
+
+	/** Resolves a lazy source's final URL on play; `id` comes from `source.lazy.id`. */
+	resolveLazy?(id: string, context: ProviderContext, requester: ScrapeRequester): Promise<InternalMediaSource | null>;
 
 	/** Optional cleanup method to release resources or perform any necessary cleanup tasks when the provider module is unloaded or the manager is shut down. */
 	cleanup?(): Promise<void>;

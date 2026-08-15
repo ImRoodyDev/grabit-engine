@@ -2,6 +2,7 @@ import type { HttpsProxyAgent } from "https-proxy-agent";
 import type { SocksProxyAgent } from "socks-proxy-agent";
 import type { HttpProxyAgent } from "http-proxy-agent";
 import type { Media, MovieMedia, SerieMedia, ChannelMedia } from "./Media.ts";
+import type { TProviderFetchControls } from "../models/Provider.ts";
 
 /** Requester information for a media request
  * - userAgent: The user agent string of the requester
@@ -20,6 +21,8 @@ export type ScrapeRequester = {
 	userAgent?: string;
 	/** Optional proxy agent for making requests through a proxy */
 	proxyAgent?: HttpsProxyAgent<string> | SocksProxyAgent | HttpProxyAgent<string>;
+	/** Optional Proxy-Authorization header value (host-supplied; for header-authenticating proxies) */
+	proxyAuth?: string;
 	/** Optional User IP address of the requester */
 	userIP?: string;
 	/**
@@ -29,6 +32,9 @@ export type ScrapeRequester = {
 	 * them run to completion in the background.
 	 */
 	signal?: AbortSignal;
+	/** Per-host concurrency / rate-limit / coalescing defaults, resolved from the
+	 *  provider config and applied to every ctx.xhr call unless the call overrides them. */
+	fetchControls?: TProviderFetchControls;
 };
 
 /** Raw Requester information for a media request `(Non-validated)`
@@ -48,6 +54,8 @@ export type RawScrapeRequester = {
 	userAgent?: string;
 	/** Optional proxy agent for making requests through a proxy */
 	proxyAgent?: HttpsProxyAgent<string> | SocksProxyAgent | HttpProxyAgent<string>;
+	/** Optional Proxy-Authorization header value (host-supplied; for header-authenticating proxies) */
+	proxyAuth?: string;
 	/** Optional User IP address of the requester */
 	userIP?: string;
 };

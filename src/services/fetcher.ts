@@ -15,14 +15,27 @@
  *   - Node.js fetch → undici → OpenSSL → known bot fingerprint → BLOCKED
  *   - Impit         → Rust  → BoringSSL → browser fingerprint → ✅ PASSES
  */
-import { CACHE } from "./cache.ts";
-import { delay, isBrowser, isNode, normalizeHeaders } from "../utils/standard.ts";
-import { HttpError } from "../types/HttpError.ts";
-import { ProcessError } from "../types/ProcessError.ts";
 import type { RequestInit } from "impit";
 import type { HttpProxyAgent } from "http-proxy-agent";
 import type { HttpsProxyAgent } from "https-proxy-agent";
 import type { SocksProxyAgent } from "socks-proxy-agent";
+
+import { CACHE } from "./cache.ts";
+import { CookieJar, hostLimiter, rateLimitedFor, noteRateLimit, parseRetryAfter } from "./httpControls.ts";
+import {
+	CachedResponse,
+	UniversalFetch,
+	MAX_CACHEABLE_BODY,
+	createRequestCacheKey,
+	serializeResponse,
+	reconstructResponse,
+	extractProxyUrl,
+	safeHost,
+	forwardAbort
+} from "../utils/fetch.ts";
+import { delay, isBrowser, isNode, normalizeHeaders } from "../utils/standard.ts";
+import { HttpError } from "../types/HttpError.ts";
+import { ProcessError } from "../types/ProcessError.ts";
 
 // declare module "node-fetch" {
 declare module "impit" {
@@ -42,11 +55,24 @@ declare module "impit" {
 		cacheTTL?: number;
 		/** Use Impit instead of native fetch */
 		useImpit?: boolean;
+		/** Cookie jar: attaches the host's cookies and captures Set-Cookie. */
+		cookieJar?: CookieJar;
+		/** Cap concurrent in-flight requests to this URL's host (provider default 10). */
+		maxHostConcurrency?: number;
+		/** Honor 429 `Retry-After`: wait briefly, else throw an HttpError 429 (provider default on). */
+		honorRateLimit?: boolean;
+		/** Dedupe identical in-flight cacheable GETs into one request (provider default on). */
+		coalesce?: boolean;
 	}
 }
 
+/** In-flight cacheable GETs, so identical concurrent requests share one fetch. */
+const _inflight = new Map<string, Promise<CachedResponse>>();
+
 /** Native fetch, bound once (browser / React Native / Node without a proxy need). */
 let _bareFetch: UniversalFetch | null = null;
+let _resolvedImpitClass: any = null;
+
 /** Impit clients keyed by proxy URL ("" = no proxy).
  *  A single shared slot used to hand an unproxied request the client bound to the
  *  last proxy that was configured, silently routing traffic through a third party.
@@ -54,7 +80,6 @@ let _bareFetch: UniversalFetch | null = null;
 const _impitClients = new Map<string, UniversalFetch>();
 /** Cap on distinct proxy clients kept alive — each one is a native Rust addon instance. */
 const MAX_IMPIT_CLIENTS = 16;
-let _resolvedImpitClass: any = null;
 
 /** The single seam through which the optional native Impit module is loaded.
  *
@@ -79,7 +104,7 @@ export function __resetFetchClientsForTests(): void {
 }
 
 /** Resolves the Impit class, loading the optional native module on first use. */
-async function resolveImpitClass() {
+async function ImpitClass() {
 	if (_resolvedImpitClass) return _resolvedImpitClass;
 
 	try {
@@ -110,10 +135,9 @@ async function resolveImpitClass() {
  *  (expensive) native client construction only once.
  */
 async function resolveFetch(agent?: RequestInit["agent"]): Promise<UniversalFetch> {
-	const useBareFetch = (!isNode() || isBrowser()) && typeof globalThis.fetch === "function";
-
+	// Impit is only used on Node.js
 	// Browsers / React Native: native fetch, bound to globalThis to preserve context
-	if (useBareFetch) {
+	if ((!isNode() || isBrowser()) && typeof globalThis.fetch === "function") {
 		return (_bareFetch ??= globalThis.fetch.bind(globalThis) as unknown as UniversalFetch);
 	}
 
@@ -121,165 +145,70 @@ async function resolveFetch(agent?: RequestInit["agent"]): Promise<UniversalFetc
 	const proxyUrl = extractProxyUrl(agent) ?? "";
 	const cached = _impitClients.get(proxyUrl);
 	if (cached) return cached;
+	else {
+		try {
+			const Impit = await ImpitClass();
+			const BrowserClient = new Impit({
+				browser: "firefox",
+				proxyUrl: proxyUrl || undefined,
+				// Avoid failing on expired ssl
+				ignoreTlsErrors: true
+			});
+			const impitFetch = BrowserClient.fetch.bind(BrowserClient) as unknown as UniversalFetch;
 
-	try {
-		const Impit = await resolveImpitClass();
-		const BrowserClient = new Impit({
-			browser: "firefox",
-			proxyUrl: proxyUrl || undefined,
-			// Avoid failing on expired ssl
-			ignoreTlsErrors: true
-		});
-		const impitFetch = BrowserClient.fetch.bind(BrowserClient) as unknown as UniversalFetch;
-
-		// Evict the oldest client when callers churn through many distinct proxies
-		while (_impitClients.size >= MAX_IMPIT_CLIENTS) {
-			const oldestKey = _impitClients.keys().next().value;
-			if (oldestKey === undefined) break;
-			_impitClients.delete(oldestKey);
-		}
-		_impitClients.set(proxyUrl, impitFetch);
-		return impitFetch;
-	} catch (error) {
-		// Re-throw ProcessErrors from resolveImpitClass directly
-		if (error instanceof ProcessError) throw error;
-		throw new ProcessError({
-			code: "FETCH_NOT_AVAILABLE",
-			message:
-				error instanceof Error
-					? `No fetch implementation found: ${error.message}`
-					: "No fetch implementation found. Use an environment with native fetch support or install impit.",
-			expose: false
-		});
-	}
-}
-function createRequestCacheKey(request: RequestInfo | URL, method: string = "GET"): string {
-	const urlString = typeof request === "string" ? request : request.toString();
-	return createStableHash(`${method.toUpperCase()}:${urlString}`);
-}
-
-/** Fast deterministic non-cryptographic hash used only for cache keys. */
-function createStableHash(input: string): string {
-	let hash = 5381;
-	for (let i = 0; i < input.length; i++) {
-		hash = (hash * 33) ^ input.charCodeAt(i);
-	}
-	return (hash >>> 0).toString(16).padStart(8, "0");
-}
-
-/** Clone a Response into a plain serializable object for caching */
-async function serializeResponse(response: Response): Promise<CachedResponse> {
-	const cloned = response.clone?.() ?? response; // Clone if possible to avoid consuming the body
-	const body = await cloned.text();
-	const headers: [string, string][] = [];
-	cloned.headers.forEach((value, key) => {
-		headers.push([key, value]);
-	});
-	return { body, status: cloned.status, statusText: cloned.statusText, headers };
-}
-
-/** Reconstruct a standard Response from a cached entry */
-function reconstructResponse(cached: CachedResponse): Response {
-	return new Response(cached.body, {
-		status: cached.status,
-		statusText: cached.statusText,
-		headers: new Headers(cached.headers)
-	});
-}
-
-/** Extracts the proxy URL string from an http-proxy-agent / https-proxy-agent / socks-proxy-agent.
- * All three have a `.proxy` property (URL object).
- */
-function extractProxyUrl(agent?: RequestInit["agent"]): string | undefined {
-	if (!agent) return undefined;
-
-	const proxy = (agent as any).proxy;
-
-	// HttpProxyAgent / HttpsProxyAgent → proxy is a URL object
-	if (proxy instanceof URL) return proxy.href;
-	if (typeof proxy === "string") return proxy;
-	if (proxy?.href) return proxy.href;
-
-	// SocksProxyAgent → proxy is { host, port, type, userId?, password? }
-	if (proxy && typeof proxy === "object" && "host" in proxy && "type" in proxy) {
-		const socksType: Record<number, string> = { 4: "socks4", 5: "socks5" };
-		const protocol = socksType[proxy.type] ?? "socks5";
-		const auth = proxy.userId
-			? proxy.password
-				? `${encodeURIComponent(proxy.userId)}:${encodeURIComponent(proxy.password)}@`
-				: `${encodeURIComponent(proxy.userId)}@`
-			: "";
-		const port = proxy.port ? `:${proxy.port}` : "";
-		return `${protocol}://${auth}${proxy.host}${port}`;
-	}
-
-	return undefined;
-}
-
-/** Handle HTTPS request requestResponse */
-export async function handleResponse<GeneticResponse = any, GeneticError = any>(requestResponse: Response) {
-	// Get the content type from the requestResponse headers
-	const contentType = requestResponse.headers.get("content-type");
-
-	// Check if the requestResponse status indicates success
-	if (requestResponse.ok) {
-		// If the requestResponse is OK, parse based on content type
-		if (contentType?.includes("application/json")) {
-			try {
-				// Return the parsed JSON requestResponse
-				return (await requestResponse.json()) as Promise<GeneticResponse>;
-			} catch (error: any) {
-				throw new HttpError({
-					code: "FETCH_JSON_PARSE_ERROR",
-					message: error instanceof Error ? `Error parsing JSON: ${error.message}` : "Error parsing JSON",
-					statusCode: 500,
-					expose: false
-				});
+			// Evict the oldest client when callers churn through many distinct proxies
+			while (_impitClients.size >= MAX_IMPIT_CLIENTS) {
+				const oldestKey = _impitClients.keys().next().value;
+				if (oldestKey === undefined) break;
+				_impitClients.delete(oldestKey);
 			}
-		} else {
-			// Handle non-JSON requestResponse types
-			return (await requestResponse.text()) as unknown as Promise<GeneticResponse>;
+			_impitClients.set(proxyUrl, impitFetch);
+			return impitFetch;
+		} catch (error) {
+			// Re-throw ProcessErrors from resolveImpitClass directly
+			if (error instanceof ProcessError) throw error;
+			throw new ProcessError({
+				code: "FETCH_NOT_AVAILABLE",
+				message:
+					error instanceof Error
+						? `No fetch implementation found: ${error.message}`
+						: "No fetch implementation found. Use an environment with native fetch support or install impit.",
+				expose: false
+			});
 		}
 	}
-
-	// If the requestResponse indicates an error, create an ProcessError
-	let fetchError: GeneticError | string;
-
-	// Read the body once as text, then attempt JSON parse.
-	// Avoids consuming the body twice (clone() may not be available, e.g. Impit responses).
-	const errorBody = await requestResponse.text();
-	try {
-		fetchError = JSON.parse(errorBody) as GeneticError;
-	} catch {
-		fetchError = errorBody;
-	}
-
-	// Throw an ProcessError with details from the failed requestResponse
-	throw new HttpError({
-		code: "FETCH_REQUEST_ERROR",
-		statusCode: requestResponse.status,
-		message: `Fetch request failed with status ${requestResponse.status}: ${requestResponse.statusText}`,
-		details: fetchError,
-		expose: false
-	});
 }
-
-/** Largest response body (in characters) eligible for caching — 256 KB. */
-const MAX_CACHEABLE_BODY = 256 * 1024;
 
 /** Make an application fetch request */
 export async function appFetch(request: RequestInfo | URL, options: RequestInit = {}) {
-	const { cacheTTL, customCacheKey, useImpit = true, ...fetchableOptions } = options;
+	const { cacheTTL, customCacheKey, useImpit = true, cookieJar, maxHostConcurrency, honorRateLimit, coalesce, ...fetchableOptions } = options;
 
 	// Resolve cache key (includes HTTP method to prevent collisions between GET/POST for the same URL)
 	const method = (options.method ?? "GET").toUpperCase();
 	const cacheEnabled = cacheTTL != null && cacheTTL > 0;
 	const cacheKey = cacheEnabled ? (customCacheKey ?? createRequestCacheKey(request, method)) : undefined;
 
-	// ── Cache read ──────────────────────────────────────────────────────────
+	// Cache read if available
 	if (cacheKey) {
 		const cached = CACHE.get<CachedResponse>(cacheKey);
 		if (cached) return reconstructResponse(cached);
+	}
+
+	const host = safeHost(request);
+
+	// ── Rate-limit gate: wait out a short 429 window, else throw ─────
+	if (honorRateLimit && host) {
+		const waitMs = rateLimitedFor(host);
+		if (waitMs != null) {
+			if (waitMs <= 1500) await delay(waitMs);
+			else
+				throw new HttpError({
+					code: "RATE_LIMITED",
+					statusCode: 429,
+					message: `Rate limited for ${host} (~${Math.ceil(waitMs / 1000)}s)`,
+					expose: false
+				});
+		}
 	}
 
 	const fetch: UniversalFetch = useImpit ? await resolveFetch(fetchableOptions.agent) : (global.fetch.bind(globalThis) as unknown as UniversalFetch);
@@ -287,54 +216,68 @@ export async function appFetch(request: RequestInfo | URL, options: RequestInit 
 	// Set default options for proper cookie handling
 	const defaultOptions: RequestInit = {
 		method: "GET",
-		// credentials: 'include', // Include cookies in the request
 		headers: {
 			"Content-Type": "application/json",
 			Accept: "application/json"
 		}
 	};
 
-	// Merge with user options
-	const mergedOptions: RequestInit = {
-		...defaultOptions,
-		...fetchableOptions,
-		headers: normalizeHeaders(
-			fetchableOptions.clean
-				? ((fetchableOptions.headers as Record<string, string>) ?? {})
-				: {
-						...(defaultOptions.headers as Record<string, string>),
-						...((fetchableOptions.headers as Record<string, string>) || {})
-					}
-		)
+	// Merge headers, then layer the cookie-jar on top.
+	const headers = normalizeHeaders(
+		fetchableOptions.clean
+			? ((fetchableOptions.headers as Record<string, string>) ?? {})
+			: {
+					...(defaultOptions.headers as Record<string, string>),
+					...((fetchableOptions.headers as Record<string, string>) || {})
+				}
+	) as Record<string, string>;
+
+	if (cookieJar && host) {
+		const jarCookie = cookieJar.header(host);
+		if (jarCookie) headers.cookie = headers.cookie ? `${headers.cookie}; ${jarCookie}` : jarCookie;
+	}
+
+	// Combine default options with user-provider options, ensuring headers are normalized and cookies are included
+	const mergedOptions: RequestInit = { ...defaultOptions, ...fetchableOptions, headers };
+
+	// One real fetch, optionally gated by a per-host limiter, plus
+	// cookie capture and 429 back-off recording afterwards.
+	const runFetch = async (): Promise<Response> => {
+		const doFetch = () => fetch(request, mergedOptions);
+		const limiter = maxHostConcurrency && host ? hostLimiter(host, maxHostConcurrency) : null;
+		const response = limiter ? await limiter(doFetch) : await doFetch();
+		if (cookieJar && host) cookieJar.setFromResponse(host, response.headers);
+		if (response.status === 429 && host) noteRateLimit(host, parseRetryAfter(response.headers.get("retry-after")) || 30000);
+		return response;
 	};
 
-	// Handle API request method
-	const response = await fetch(request, mergedOptions);
+	// Coalesce identical cacheable GETs into one request
+	if (coalesce && cacheKey && method === "GET") {
+		const existing = _inflight.get(cacheKey);
+		if (existing) return reconstructResponse(await existing);
+		const p = (async () => {
+			const response = await runFetch();
+			const serialized = await serializeResponse(response);
+			if (cacheTTL && response.ok && serialized.body.length <= MAX_CACHEABLE_BODY) CACHE.set(cacheKey, serialized, cacheTTL);
+			return serialized;
+		})().finally(() => _inflight.delete(cacheKey));
+		_inflight.set(cacheKey, p);
+		return reconstructResponse(await p);
+	}
 
-	// ── Cache write (only successful responses) ─────────────────────────────
+	// Fetch without coalescing, but still cache the response if applicable
+	const response = await runFetch();
+
+	// Cache write (only successful responses)
 	if (cacheKey && cacheTTL && response.ok) {
-		// Serialize the response synchronously, cache it, and return a reconstructed
-		// Response so the original body is never consumed by the caller — this avoids
-		// "Body has already been read" errors with runtimes/libraries (e.g. Impit)
-		// whose Response.clone() may not produce fully independent body streams.
+		// Return a reconstructed Response so the body is never consumed by the caller
+		// (Impit's clone() may not produce an independent body stream).
 		const serialized = await serializeResponse(response);
-		// The cache is bounded by entry count, not bytes — skip oversized bodies so a
-		// few thousand large scraped pages cannot exhaust memory on a mobile device.
 		if (serialized.body.length <= MAX_CACHEABLE_BODY) CACHE.set(cacheKey, serialized, cacheTTL);
 		return reconstructResponse(serialized);
 	}
 
 	return response;
-}
-
-/** Bridges an external abort signal onto an internal controller. Hermes has no
- * `AbortSignal.any`, so a timeout controller and a caller's cancel signal are
- * linked by hand: aborting either aborts the request.
- */
-function forwardAbort(controller: AbortController, external?: AbortSignal | null): void {
-	if (!external) return;
-	if (external.aborted) return controller.abort();
-	external.addEventListener("abort", () => controller.abort(), { once: true });
 }
 
 /** Fetch with timeout
@@ -386,6 +329,54 @@ export async function fetchWithRetry(request: RequestInfo | URL, options: Reques
 		});
 	}
 	return requestResponse;
+}
+
+/** Handle HTTPS request requestResponse */
+export async function handleResponse<GeneticResponse = any, GeneticError = any>(requestResponse: Response) {
+	// Get the content type from the requestResponse headers
+	const contentType = requestResponse.headers.get("content-type");
+
+	// Check if the requestResponse status indicates success
+	if (requestResponse.ok) {
+		// If the requestResponse is OK, parse based on content type
+		if (contentType?.includes("application/json")) {
+			try {
+				// Return the parsed JSON requestResponse
+				return (await requestResponse.json()) as Promise<GeneticResponse>;
+			} catch (error: any) {
+				throw new HttpError({
+					code: "FETCH_JSON_PARSE_ERROR",
+					message: error instanceof Error ? `Error parsing JSON: ${error.message}` : "Error parsing JSON",
+					statusCode: 500,
+					expose: false
+				});
+			}
+		} else {
+			// Handle non-JSON requestResponse types
+			return (await requestResponse.text()) as unknown as Promise<GeneticResponse>;
+		}
+	}
+
+	// If the requestResponse indicates an error, create an ProcessError
+	let fetchError: GeneticError | string;
+
+	// Read the body once as text, then attempt JSON parse.
+	// Avoids consuming the body twice (clone() may not be available, e.g. Impit responses).
+	const errorBody = await requestResponse.text();
+	try {
+		fetchError = JSON.parse(errorBody) as GeneticError;
+	} catch {
+		fetchError = errorBody;
+	}
+
+	// Throw an ProcessError with details from the failed requestResponse
+	throw new HttpError({
+		code: "FETCH_REQUEST_ERROR",
+		statusCode: requestResponse.status,
+		message: `Fetch request failed with status ${requestResponse.status}: ${requestResponse.statusText}`,
+		details: fetchError,
+		expose: false
+	});
 }
 
 /** Fetch and handle HTTPS request requestResponse
@@ -471,15 +462,6 @@ export async function fetchResponseWithTimeout<GeneticResponse = any, GeneticErr
 	}
 }
 
-/** Serializable representation of an HTTP response for cross-env caching */
-type CachedResponse = {
-	body: string;
-	status: number;
-	statusText: string;
-	headers: [string, string][];
-};
-/** Universal fetch type compatible with both native fetch and node-fetch */
-type UniversalFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 export type RequestRetryInit = RequestInit & {
 	maxAttempts?: number;
 	retryTimeout?: number;

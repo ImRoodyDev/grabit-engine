@@ -11,11 +11,20 @@ export * from "./controllers/provider.ts";
 
 // Service for extension
 export * from "./services/unpacker.ts";
-export * from "./services/crypto.ts";
+// Node-only: the real Node built-in. This entry is never bundled for the browser,
+// so the top-level `crypto` import is safe here (the universal barrels use the
+// lazy `CryptoUniversal` proxy from `services/crypto.ts` instead).
+export { default as Crypto } from "crypto";
 export * from "./services/tldts.ts";
 
 // Provider Modules
 export * from "./models/provider.ts";
+
+// HTTP hardening (cookie jar, per-host limits, rate-limit).
+export { CookieJar } from "./services/httpControls.ts";
+
+// Pluggable challenge solver — host injects one for RN WebView / FlareSolverr.
+export { setChallengeSolver } from "./core/solver.ts";
 
 // Types
 export * from "./types/index.ts";

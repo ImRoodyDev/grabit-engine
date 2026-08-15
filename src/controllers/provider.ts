@@ -122,6 +122,26 @@ function createModuleWorkers(provider: Provider, manifest: ProviderModuleManifes
 						throw error;
 					}
 				}
+			: undefined,
+		// Lazy resolution: shape the single resolved source like getStreams.
+		resolveLazy: workers.resolveLazy
+			? async (id, context, requester) => {
+					const source = await workers.resolveLazy!(id, context, requester);
+					if (!source) return null;
+					const format =
+						source.format ?? ((typeof source.playlist === "string" ? (extractExtension(source.playlist) ?? "m3u8") : "m3u8") as MediaSource["format"]);
+					return {
+						...source,
+						xhr: {
+							...source.xhr,
+							headers: normalizeHeaders({ ...source.xhr?.headers, "User-Agent": requester.userAgent })
+						},
+						format,
+						fileName: `[${manifest.name}][${format.toUpperCase()}] - ${source.fileName ?? "Source"} `,
+						providerName: manifest.name,
+						scheme: provider.config.scheme
+					} as MediaSource;
+				}
 			: undefined
 	};
 }

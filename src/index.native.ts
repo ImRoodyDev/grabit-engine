@@ -8,7 +8,7 @@ export * from "./controllers/provider.ts";
 // Service for extension
 // Browser/RN-safe `Crypto` accessor (resolves from a host-provided global via
 // setupGrabitGlobals; never imports the Node built-in so Metro can bundle it).
-export { Crypto } from "./services/cryptoUniversal.ts";
+export { CryptoUniversal as Crypto } from "./services/crypto.ts";
 export * from "./services/unpacker.ts";
 export * from "./services/tldts.ts";
 

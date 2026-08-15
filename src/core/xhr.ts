@@ -29,13 +29,17 @@ export async function providerFetch(request: RequestInfo | URL, fetchOptions: Pr
 	const { attachUserAgent = true, attachProxy = true, useImpit = true, ...options } = fetchOptions;
 
 	const _option = {
+		// Provider fetch controls first so an explicit per-call option still wins.
+		...requester.fetchControls,
 		...options,
 		useImpit,
 		// Forward the operation's cancel signal so aborting a scrape cancels this fetch.
 		signal: options.signal ?? requester.signal,
 		headers: {
 			...options.headers,
-			...(attachUserAgent && requester.userAgent && { "User-Agent": requester.userAgent })
+			...(attachUserAgent && requester.userAgent && { "User-Agent": requester.userAgent }),
+			// Proxy auth is host-supplied (manager config / scrape request), never a provider option.
+			...(attachProxy && requester.proxyAuth && { "Proxy-Authorization": requester.proxyAuth })
 		},
 		agent: attachProxy ? requester.proxyAgent : undefined
 	};
@@ -61,12 +65,16 @@ export async function providerFetchResponse<TResponse = unknown, TError = unknow
 ) {
 	const { attachUserAgent = true, attachProxy = true, ...options } = fetchOptions;
 	const _option = {
+		// Provider fetch controls first so an explicit per-call option still wins.
+		...requester.fetchControls,
 		...options,
 		// Forward the operation's cancel signal so aborting a scrape cancels this fetch.
 		signal: options.signal ?? requester.signal,
 		headers: {
 			...options.headers,
-			...(attachUserAgent && requester.userAgent && { "User-Agent": requester.userAgent })
+			...(attachUserAgent && requester.userAgent && { "User-Agent": requester.userAgent }),
+			// Proxy auth is host-supplied (manager config / scrape request), never a provider option.
+			...(attachProxy && requester.proxyAuth && { "Proxy-Authorization": requester.proxyAuth })
 		},
 		agent: attachProxy ? requester.proxyAgent : undefined
 	};
