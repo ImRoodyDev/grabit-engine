@@ -26,6 +26,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
+import { loadEnvFiles } from "./load-env.js";
+
+// Load .env / .env.local from the project the CLI runs in (shell env still wins).
+loadEnvFiles();
 
 const ROOT = process.cwd();
 const PROVIDERS_DIR = path.join(ROOT, "providers");

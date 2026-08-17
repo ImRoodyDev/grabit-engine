@@ -62,12 +62,24 @@
  *   1. <src>/<scheme>/index.js   ← pre-bundled output from `npx bundle-provider`
  *   2. <src>/<scheme>/index.ts   ← TypeScript source (auto-bundled via esbuild if available)
  *
+ * ─── Environment (.env / .env.local in the project root) ───────────────────
+ *
+ *   TMDB_API_KEYS   Comma separated TMDB v3 keys (a pool; one is picked per request)
+ *   TMDB_API_KEY    Single TMDB v3 key (merged with TMDB_API_KEYS if both are set)
+ *
+ *   Real shell/CI variables always win over the files. When neither is set the
+ *   built-in public key pool is used, so existing setups keep working.
+ *
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { loadEnvFiles, envList } from "./load-env.js";
+
+// Load .env / .env.local from the project the CLI runs in (shell env still wins).
+const LOADED_ENV_FILES = loadEnvFiles();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -221,6 +233,10 @@ ${bold("OPTIONS")}
   --raw                            Also print raw JSON output
   --no-bundle                      Require pre-bundled index.js, skip auto-bundling
   --help, -h                       Show this help
+
+${bold("ENVIRONMENT")} ${dim("(.env / .env.local in the project root; shell vars win)")}
+  TMDB_API_KEYS                    Comma separated TMDB v3 keys (pool)
+  TMDB_API_KEY                     Single TMDB v3 key
 
 ${bold("EXAMPLES")}
   npx test-provider --scheme vidsrc --type movie --tmdb 27205
@@ -614,6 +630,8 @@ async function main() {
 	console.log(`${c.bold}${c.magenta}└─────────────────────────────────────────────┘${c.reset}`);
 	console.log();
 
+	if (LOADED_ENV_FILES.length) info(`Loaded env file(s): ${LOADED_ENV_FILES.join(", ")}`);
+
 	// ─── Build media ─────────────────────────────────────────────────────
 	header("► Media");
 	rule();
@@ -660,8 +678,13 @@ async function main() {
 			const tmdbMod = await import(pathToFileURL(path.join(PKG_ROOT, "dist", "esm", "src", "services", "tmdb.js")).href);
 			const TMDB = tmdbMod.TMDB;
 
+			// Keys come from TMDB_API_KEYS (comma separated) or TMDB_API_KEY in .env,
+			// falling back to the built-in pool when neither is set.
+			const envKeys = [...envList("TMDB_API_KEYS"), ...envList("TMDB_API_KEY")];
+			if (envKeys.length) info(`Using ${envKeys.length} TMDB API key(s) from the environment`);
+
 			// Initialize TMDB with a pool of API keys
-			TMDB.init([
+			TMDB.init(envKeys.length ? envKeys : [
 				"10923b261ba94d897ac6b81148314a3f",
 				"b573d051ec65413c949e68169923f7ff",
 				"da40aaeca884d8c9a9a4c088917c474c",

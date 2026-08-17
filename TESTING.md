@@ -32,6 +32,30 @@ If you pre-bundle with `npx bundle-provider` first, esbuild is not required at t
 
 ---
 
+## Environment (`.env`)
+
+The CLIs load `.env` and then `.env.local` from the directory you run them in. Real shell/CI
+variables always win over the files, and `.env.local` overrides `.env`. No dependency is needed:
+Node's built-in env-file loader is used, with a small parser fallback on older runtimes.
+
+| Variable | Purpose |
+|---|---|
+| `TMDB_API_KEYS` | Comma (or space) separated TMDB v3 keys. A pool; one is picked per request. |
+| `TMDB_API_KEY` | A single TMDB v3 key. Merged with `TMDB_API_KEYS` when both are set. |
+
+```bash
+# .env
+TMDB_API_KEYS=your_key_one,your_key_two
+```
+
+When neither is set the CLI falls back to its built-in public key pool, so existing setups keep
+working unchanged. `test-provider` prints which env files it loaded and how many keys came from
+the environment.
+
+> Add `.env` and `.env.*` to `.gitignore` so keys are never committed.
+
+---
+
 ## Usage
 
 ### Test a movie

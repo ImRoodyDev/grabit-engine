@@ -32,6 +32,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { builtinModules } from "node:module";
 import { createRequire } from "node:module";
+import { loadEnvFiles } from "./load-env.js";
+
+// Load .env / .env.local from the project the CLI runs in (shell env still wins).
+loadEnvFiles();
 
 const require = createRequire(import.meta.url);
 
