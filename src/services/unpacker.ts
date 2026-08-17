@@ -95,62 +95,6 @@ export function unpackV2(source: string) {
 	}
 }
 
-/** Unpack the code from the /packer/ (Doesn't work in NODE.JS, only in WEB).
- * @see http://matthewfl.com/unPacker.html
- * @param {string} code The packed code
- * @returns {string} The unpacked code
- * @author Matthew Flaschen <matthew@matthewfl.com>
- */
-export function disabled_unpackV1(code: string): string {
-	function indent(codeLines: string[]): string[] {
-		try {
-			var tabs: any = 0,
-				old: any = -1,
-				add: any = "";
-			for (var i = 0; i < codeLines.length; i++) {
-				if (codeLines[i].indexOf("{") != -1) tabs++;
-				if (codeLines[i].indexOf("}") != -1) tabs--;
-
-				if (old != tabs) {
-					old = tabs;
-					add = "";
-					while (old > 0) {
-						add += "\t";
-						old--;
-					}
-					old = tabs;
-				}
-
-				codeLines[i] = add + codeLines[i];
-			}
-		} finally {
-			tabs = null;
-			old = null;
-			add = null;
-		}
-		return codeLines;
-	}
-
-	var env: any = {
-		eval: function (c: string) {
-			code = c;
-		},
-		window: {},
-		document: {}
-	};
-
-	// eslint-disable-next-line no-eval
-	// @ts-ignore
-	eval("with(env) {" + code + "}");
-
-	var codeWithNewLines = (code + "").replace(/;/g, ";\n").replace(/{/g, "\n{\n").replace(/}/g, "\n}\n").replace(/\n;\n/g, ";\n").replace(/\n\n/g, "\n");
-
-	var splitLines = codeWithNewLines.split("\n");
-	splitLines = indent(splitLines);
-
-	return splitLines.join("\n");
-}
-
 /**
  * Functor for a given base. Will efficiently convert
  * strings to natural numbers.

@@ -23,18 +23,24 @@ import { ScrapeRequester, ProviderContext, ProviderFetchOptions, isHttpError } f
  *
  *
  * @see {@link ProviderFetchOptions}  for the options that can be passed to this function, including timeout and retry options
- * @defaults - `attachUserAgent`: true, `attachProxy`: true
+ * @defaults - `attachUserAgent`: true
  */
 export async function providerFetch(request: RequestInfo | URL, fetchOptions: ProviderFetchOptions, requester: ScrapeRequester) {
-	const { attachUserAgent = true, attachProxy = true, ...options } = fetchOptions;
+	const { attachUserAgent = true, useImpit = true, ...options } = fetchOptions;
 
 	const _option = {
+		// Provider fetch controls first so an explicit per-call option still wins.
+		...requester.fetchControls,
 		...options,
+		useImpit,
+		// Forward the operation's cancel signal so aborting a scrape cancels this fetch.
+		signal: options.signal ?? requester.signal,
 		headers: {
 			...options.headers,
 			...(attachUserAgent && requester.userAgent && { "User-Agent": requester.userAgent })
 		},
-		agent: attachProxy ? requester.proxyAgent : undefined
+		// Proxy is host-supplied (manager config / scrape request); appFetch applies it.
+		proxy: requester.proxy
 	};
 
 	// Determine what type of request init is send e.g timeout, retry or normal fetch and call the appropriate function
@@ -56,14 +62,19 @@ export async function providerFetchResponse<TResponse = unknown, TError = unknow
 	fetchOptions: ProviderFetchOptions,
 	requester: ScrapeRequester
 ) {
-	const { attachUserAgent = true, attachProxy = true, ...options } = fetchOptions;
+	const { attachUserAgent = true, ...options } = fetchOptions;
 	const _option = {
+		// Provider fetch controls first so an explicit per-call option still wins.
+		...requester.fetchControls,
 		...options,
+		// Forward the operation's cancel signal so aborting a scrape cancels this fetch.
+		signal: options.signal ?? requester.signal,
 		headers: {
 			...options.headers,
 			...(attachUserAgent && requester.userAgent && { "User-Agent": requester.userAgent })
 		},
-		agent: attachProxy ? requester.proxyAgent : undefined
+		// Proxy is host-supplied (manager config / scrape request); appFetch applies it.
+		proxy: requester.proxy
 	};
 
 	// Determine what type of request init is send e.g timeout, retry or normal fetch and call the appropriate function

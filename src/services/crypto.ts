@@ -1,43 +1,63 @@
-// // crypto-wrapper.ts
-// import { isNode } from "../utils/standard";
-// let crypto: typeof import("crypto");
-// if (isNode() && navigator.product !== "ReactNative") {
-// 	// Node.js
-// 	crypto = require("crypto");
-// } else {
-// 	// React Native
-// 	try {
-// 		crypto = require("react-native-quick-crypto") as typeof import("crypto");
-// 	} catch {
-// 		throw new Error("Crypto library not found for React Native. Install react-native-quick-crypto");
-// 	}
-// }
-// export default crypto;
-
-import Crypto from "crypto";
-export { Crypto };
-
-// Polyfill atob / btoa for environments that don't provide them globally
-// (e.g. React Native < 0.74).
-// The `base-64` package is an optional peer dependency; install it when
-// targeting React Native:
+// Environment-agnostic `Crypto` accessor (browser / React Native / Node safe).
 //
-//   npm install base-64
-//   # or
-//   yarn add base-64
+// This module NEVER references a Node built-in at the top level (only `import type`,
+// which is erased at compile time), so it is safe to include in the universal
+// (`index.ts`) and React Native (`index.native.ts`) barrels — Webpack, Vite and
+// Metro will not try to bundle a Node built-in from here.
 //
-if (typeof globalThis.atob === "undefined" || typeof globalThis.btoa === "undefined") {
-	try {
-		// eslint-disable-next-line @typescript-eslint/no-var-requires
-		const base64 = require("base-64") as { encode: (s: string) => string; decode: (s: string) => string };
-		if (typeof globalThis.btoa === "undefined") {
-			(globalThis as typeof globalThis & { btoa: (s: string) => string }).btoa = base64.encode;
+// The real Node `crypto` is exported directly from `index.node.ts` (a Node-only
+// entry that is never bundled for the browser), so Node consumers get the genuine
+// implementation with no host setup.
+//
+// This file resolves an implementation lazily, on property access, from a
+// host-provided global (in priority order):
+//   1. `globalThis.__grabitCrypto` — set via `setupGrabitGlobals({ crypto })`
+//   2. `globalThis.crypto` / `globalThis.Crypto` — only if it exposes a Node-style
+//      API (i.e. has `createHash`); the Web Crypto `globalThis.crypto` is skipped.
+
+import type NodeCrypto from "crypto";
+
+/** Finds a Node-compatible crypto implementation on the global object, if any. */
+function resolveCryptoImpl(): any {
+	const g = globalThis as any;
+	const candidates = [g.__grabitCrypto, g.crypto, g.Crypto];
+	for (const candidate of candidates) {
+		if (candidate && typeof candidate.createHash === "function") {
+			return candidate;
 		}
-		if (typeof globalThis.atob === "undefined") {
-			(globalThis as typeof globalThis & { atob: (s: string) => string }).atob = base64.decode;
-		}
-	} catch {
-		// `base-64` is not installed — atob/btoa will remain unavailable.
-		// Install the optional peer dependency `base-64` if you need this polyfill.
 	}
+	return undefined;
 }
+
+const MISSING_MESSAGE =
+	"Crypto is not available in this runtime. In React Native / the browser, install a " +
+	"Node-compatible crypto (e.g. react-native-quick-crypto) and expose it via " +
+	"setupGrabitGlobals({ crypto }) — or set globalThis.__grabitCrypto / globalThis.crypto — " +
+	"before using Crypto.";
+
+/**
+ * `CryptoUniversal` — a lazy proxy over the resolved crypto implementation.
+ *
+ * Property access (`createHash`, `pbkdf2Sync`, `createDecipheriv`, …) resolves the
+ * host implementation on first use, so it works even when the host installs its
+ * crypto after this module is imported. Typed as the Node `crypto` module for full
+ * IntelliSense (the `import type` is erased at runtime, so nothing Node-specific is
+ * bundled). Re-exported as `Crypto` from the universal / React Native barrels.
+ */
+export const CryptoUniversal = new Proxy(
+	{},
+	{
+		get(_target, property) {
+			const impl = resolveCryptoImpl();
+			if (!impl) {
+				throw new Error(MISSING_MESSAGE);
+			}
+			const value = impl[property as keyof typeof impl];
+			return typeof value === "function" ? value.bind(impl) : value;
+		},
+		has(_target, property) {
+			const impl = resolveCryptoImpl();
+			return impl ? property in impl : false;
+		}
+	}
+) as unknown as typeof NodeCrypto;

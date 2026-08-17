@@ -1,4 +1,4 @@
-import { ScrapePluginManager } from "../../../src/controllers/manager";
+import { GrabitManager } from "../../../src/controllers/manager";
 import { resetManager, GRAB_REQUEST, SERIE_GRAB_REQUEST, createMockModule, createRegistryConfig, mockMediaSource } from "./helpers";
 
 jest.mock("../../../src/services/tmdb", () => ({
@@ -10,7 +10,7 @@ jest.mock("../../../src/services/tmdb", () => ({
 
 afterEach(() => resetManager());
 
-describe("ScrapePluginManager › getStreams", () => {
+describe("GrabitManager › getStreams", () => {
 	beforeEach(() => resetManager());
 
 	it("should return combined sources from multiple providers", async () => {
@@ -23,7 +23,7 @@ describe("ScrapePluginManager › getStreams", () => {
 			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "B" })])
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ a: modA, b: modB }));
+		const manager = await GrabitManager.create(createRegistryConfig({ a: modA, b: modB }));
 		const results = await manager.getStreams(GRAB_REQUEST);
 
 		expect(results).toHaveLength(2);
@@ -32,7 +32,7 @@ describe("ScrapePluginManager › getStreams", () => {
 
 	it("should return empty array when no providers support the requested media type", async () => {
 		const mod = createMockModule({ supportedMediaTypes: ["serie"] });
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ test: mod }));
+		const manager = await GrabitManager.create(createRegistryConfig({ test: mod }));
 
 		const results = await manager.getStreams(GRAB_REQUEST);
 
@@ -50,7 +50,7 @@ describe("ScrapePluginManager › getStreams", () => {
 			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "inactive" })])
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ a: active, b: inactive }));
+		const manager = await GrabitManager.create(createRegistryConfig({ a: active, b: inactive }));
 		const results = await manager.getStreams(GRAB_REQUEST);
 
 		expect(results).toHaveLength(1);
@@ -68,7 +68,7 @@ describe("ScrapePluginManager › getStreams", () => {
 			getStreams: jest.fn().mockRejectedValue(new Error("network down"))
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ a: good, b: bad }));
+		const manager = await GrabitManager.create(createRegistryConfig({ a: good, b: bad }));
 		const results = await manager.getStreams(GRAB_REQUEST);
 
 		expect(results).toHaveLength(1);
@@ -83,7 +83,7 @@ describe("ScrapePluginManager › getStreams", () => {
 				.mockResolvedValue([mockMediaSource({ providerName: "multi", fileName: "a.mp4" }), mockMediaSource({ providerName: "multi", fileName: "b.mp4" })])
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ m: multi }));
+		const manager = await GrabitManager.create(createRegistryConfig({ m: multi }));
 		const results = await manager.getStreams(GRAB_REQUEST);
 
 		expect(results).toHaveLength(2);
@@ -100,7 +100,7 @@ describe("ScrapePluginManager › getStreams", () => {
 			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "valid" })])
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ e: empty, v: valid }));
+		const manager = await GrabitManager.create(createRegistryConfig({ e: empty, v: valid }));
 		const results = await manager.getStreams(GRAB_REQUEST);
 
 		expect(results).toHaveLength(1);
@@ -119,7 +119,7 @@ describe("ScrapePluginManager › getStreams", () => {
 			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "serie-only" })])
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ m: movieOnly, s: serieOnly }));
+		const manager = await GrabitManager.create(createRegistryConfig({ m: movieOnly, s: serieOnly }));
 		const results = await manager.getStreams(SERIE_GRAB_REQUEST);
 
 		expect(results).toHaveLength(1);
@@ -137,7 +137,7 @@ describe("ScrapePluginManager › getStreams", () => {
 			getStreams: jest.fn().mockRejectedValue(new Error("fail 2"))
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ a: bad1, b: bad2 }));
+		const manager = await GrabitManager.create(createRegistryConfig({ a: bad1, b: bad2 }));
 		const results = await manager.getStreams(GRAB_REQUEST);
 
 		expect(results).toEqual([]);

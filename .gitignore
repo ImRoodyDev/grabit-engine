@@ -37,4 +37,7 @@ yarn-error.*
 # Test generated files
 __tests__/CNP_Cache/*
 
+# Internal review notes (not shipped, not tracked)
+CODE_REVIEW.md
+
 # @end expo-cli

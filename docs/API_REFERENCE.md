@@ -10,7 +10,7 @@
 
 ## 📑 Table of Contents
 
-- [ScrapePluginManager](#scrapepluginmanager)
+- [GrabitManager](#grabitmanager)
   - [ProviderManagerConfig](#providermanagerconfig)
   - [ProviderSource](#providersource)
   - [ProvidersManifest](#providersmanifest)
@@ -19,6 +19,7 @@
 - [ProviderMetrics](#providermetrics)
 - [ProviderHealthReport](#providerhealthreport)
 - [ProviderContext](#providercontext)
+- [PuppeteerLoadRequest](#puppeteerloadrequest)
 - [ProviderFetchOptions](#providerfetchoptions)
 - [Media Input Types](#media-input-types)
   - [IBaseMedia](#ibasemedia)
@@ -49,47 +50,54 @@
 
 ---
 
-## `ScrapePluginManager`
+## `GrabitManager`
 
 The main orchestrator — creates, manages, and queries provider plugins.
 
-| Method                                  | Returns                                | Description                                                                                                                 |
-| --------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `ScrapePluginManager.create(config)`    | `Promise<ScrapePluginManager>`         | Creates the manager and loads all your provider plugins.                                                                    |
-| `getStreams(request)`                   | `Promise<MediaSource[]>`               | Gets streams from **all active providers** for the given media. Returns everything in one list.                             |
-| `getSubtitles(request)`                 | `Promise<SubtitleSource[]>`            | Gets subtitles from **all active providers** for the given media.                                                           |
-| `getStreamsByScheme(scheme, request)`   | `Promise<MediaSource[]>`               | Gets streams from **one specific provider** by its scheme.                                                                  |
-| `getSubtitlesByScheme(scheme, request)` | `Promise<SubtitleSource[]>`            | Gets subtitles from **one specific provider** by its scheme.                                                                |
-| `closeOperations()`                     | `Promise<void>`                        | Cancels all in-progress and queued scrape operations. Useful for cleanup when navigating away or aborting.                  |
-| `getProvidersByRequest(type, request)`  | `ProviderModule[]`                     | Returns the list of active providers that match the given type (`"media"` or `"subtitle"`) and request, sorted by priority. |
-| `getMetrics()`                          | `ReadonlyMap<string, ProviderMetrics>` | Returns health stats for each provider (errors, successes, last activity).                                                  |
-| `getMetricsReport()`                    | `ProviderHealthReport[]`               | Returns a full health report for every loaded provider — error rate, status, and more.                                      |
+| Method                                  | Returns                                | Description                                                                                                                          |
+| --------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `GrabitManager.create(config)`          | `Promise<GrabitManager>`               | Creates the manager and loads all your provider plugins.                                                                             |
+| `getStreams(request)`                   | `Promise<MediaSource[]>`               | Gets streams from **all active providers** for the given media. Returns everything in one list.                                      |
+| `getSubtitles(request)`                 | `Promise<SubtitleSource[]>`            | Gets subtitles from **all active providers** for the given media.                                                                    |
+| `getStreamsByScheme(scheme, request)`   | `Promise<MediaSource[]>`               | Gets streams from **one specific provider** by its scheme. Accepts a `RawScrapeRequester` — TMDB enrichment is handled internally.   |
+| `getSubtitlesByScheme(scheme, request)` | `Promise<SubtitleSource[]>`            | Gets subtitles from **one specific provider** by its scheme. Accepts a `RawScrapeRequester` — TMDB enrichment is handled internally. |
+| `closeOperations()`                     | `Promise<void>`                        | Cancels all in-progress and queued scrape operations. Useful for cleanup when navigating away or aborting.                           |
+| `getProvidersByRequest(type, request)`  | `ProviderModule[]`                     | Returns the list of active providers that match the given type (`"media"` or `"subtitle"`) and request, sorted by priority.          |
+| `getMetrics()`                          | `ReadonlyMap<string, ProviderMetrics>` | Returns health stats for each provider (errors, successes, last activity).                                                           |
+| `getMetricsReport()`                    | `ProviderHealthReport[]`               | Returns a full health report for every loaded provider — error rate, status, and more.                                               |
 
 ### `ProviderManagerConfig`
 
-The configuration object passed to `ScrapePluginManager.create(config)`.
+The configuration object passed to `GrabitManager.create(config)`.
 
-| Field                                     | Type             | Required | Default     | Description                                                                                                                                   |
-| ----------------------------------------- | ---------------- | -------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `source`                                  | `ProviderSource` | ✅       | —           | Where to load providers from. See [ProviderSource](#providersource) below.                                                                    |
-| `tmdbApiKeys`                             | `string[]`       | ✅       | —           | One or more TMDB API keys used for metadata lookups.                                                                                          |
-| `debug`                                   | `boolean`        | ❌       | `false`     | Enables extra logging and error information for development.                                                                                  |
-| `strict`                                  | `boolean`        | ❌       | `false`     | Throw on validation errors instead of warning.                                                                                                |
-| `autoInit`                                | `boolean`        | ❌       | —           | Auto-initialize providers on load.                                                                                                            |
-| `autoUpdateIntervalMinutes`               | `number`         | ❌       | `15`        | Interval (in minutes) for auto-updating providers from remote sources. Minimum is 5. **Only applies to remote sources.**                      |
-| `cache`                                   | `object`         | ❌       | —           | Caching configuration. See below.                                                                                                             |
-| `cache.enabled`                           | `boolean`        | ✅       | `false`     | Whether to enable caching of provider data.                                                                                                   |
-| `cache.TTL`                               | `number`         | ✅       | `0`         | Cache expiration TTL in milliseconds for scraped data.                                                                                        |
-| `cache.MODULE_TTL`                        | `number`         | ❌       | `900_000`   | TTL in milliseconds for caching provider modules. Separate from data TTL to allow different strategies.                                       |
-| `cache.TMDB_TTL`                          | `number`         | ❌       | —           | TMDB response cache TTL in milliseconds.                                                                                                      |
-| `cache.maxEntries`                        | `number`         | ❌       | `10_000`    | Maximum number of entries to store in the cache.                                                                                              |
-| `scrapeConfig`                            | `object`         | ❌       | —           | Scraping behaviour configuration. See below.                                                                                                  |
-| `scrapeConfig.concurrentOperations`       | `number`         | ❌       | `5`         | Maximum number of concurrent provider scraping operations.                                                                                    |
-| `scrapeConfig.maxAttempts`                | `number`         | ❌       | `3`         | Maximum retry attempts for failed scrapes.                                                                                                    |
-| `scrapeConfig.operationTimeout`           | `number`         | ❌       | `15_000`    | Global timeout in milliseconds for the entire operation. When elapsed, remaining tasks are cancelled and only collected results are returned. |
-| `scrapeConfig.successQuorum`              | `number`         | ❌       | `undefined` | Minimum successful provider results to short-circuit the operation. Remaining tasks are cancelled once the quorum is met.                     |
-| `scrapeConfig.errorThresholdRate`         | `number`         | ❌       | `0.7`       | Error rate (0–1) above which a provider is automatically disabled. Only evaluated after `minOperationsForEvaluation` operations.              |
-| `scrapeConfig.minOperationsForEvaluation` | `number`         | ❌       | `10`        | Minimum total operations before a provider's error rate is evaluated against the threshold.                                                   |
+| Field                                            | Type             | Required | Default     | Description                                                                                                                                                                    |
+| ------------------------------------------------ | ---------------- | -------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `source`                                         | `ProviderSource` | ✅       | —           | Where to load providers from. See [ProviderSource](#providersource) below.                                                                                                     |
+| `tmdbApiKeys`                                    | `string[]`       | ✅       | —           | One or more TMDB API keys used for metadata lookups.                                                                                                                           |
+| `debug`                                          | `boolean`        | ❌       | `false`     | Enables extra logging and error information for development.                                                                                                                   |
+| `strict`                                         | `boolean`        | ❌       | `false`     | Throw on validation errors instead of warning.                                                                                                                                 |
+| `autoInit`                                       | `boolean`        | ❌       | —           | Auto-initialize providers on load.                                                                                                                                             |
+| `autoUpdateIntervalMinutes`                      | `number`         | ❌       | `15`        | Interval (in minutes) for auto-updating providers from remote sources. Minimum is 5. **Only applies to remote sources.**                                                       |
+| `cache`                                          | `object`         | ❌       | —           | Caching configuration. See below.                                                                                                                                              |
+| `cache.enabled`                                  | `boolean`        | ✅       | `false`     | Whether to enable caching of provider data.                                                                                                                                    |
+| `cache.TTL`                                      | `number`         | ✅       | `0`         | Cache expiration TTL in milliseconds for scraped data.                                                                                                                         |
+| `cache.MODULE_TTL`                               | `number`         | ❌       | `900_000`   | TTL in milliseconds for caching provider modules. Separate from data TTL to allow different strategies.                                                                        |
+| `cache.TMDB_TTL`                                 | `number`         | ❌       | —           | TMDB response cache TTL in milliseconds.                                                                                                                                       |
+| `cache.maxEntries`                               | `number`         | ❌       | `10_000`    | Maximum number of entries to store in the cache.                                                                                                                               |
+| `scrapeConfig`                                   | `object`         | ❌       | —           | Scraping behaviour configuration. See below.                                                                                                                                   |
+| `scrapeConfig.concurrentOperations`              | `number`         | ❌       | `5`         | Maximum number of concurrent provider scraping operations.                                                                                                                     |
+| `scrapeConfig.maxAttempts`                       | `number`         | ❌       | `3`         | Maximum retry attempts for failed scrapes.                                                                                                                                     |
+| `scrapeConfig.operationTimeout`                  | `number`         | ❌       | `15_000`    | Global timeout in milliseconds for the entire operation. When elapsed, remaining tasks are cancelled and only collected results are returned.                                  |
+| `scrapeConfig.successQuorum`                     | `number`         | ❌       | `undefined` | Minimum successful provider results to short-circuit the operation. Remaining tasks are cancelled once the quorum is met.                                                      |
+| `scrapeConfig.waitForActiveProvidersAfterQuorum` | `boolean`        | ❌       | `false`     | After `successQuorum` is reached, wait for providers already running in active concurrency slots to finish before resolving. Queued providers are still cancelled immediately. |
+| `scrapeConfig.errorThresholdRate`                | `number`         | ❌       | `0.7`       | Error rate (0–1) above which a provider is automatically disabled. Only evaluated after `minOperationsForEvaluation` operations.                                               |
+| `scrapeConfig.minOperationsForEvaluation`        | `number`         | ❌       | `10`        | Minimum total operations before a provider's error rate is evaluated against the threshold.                                                                                    |
+| `scrapeConfig.puppeteer.maxConcurrentBrowsers`   | `number`         | ❌       | `2`         | Global cap for real Puppeteer browser processes. Matching requests reuse an existing browser as a new tab when possible.                                                       |
+| `scrapeConfig.puppeteer.minWarmBrowsers`         | `number`         | ❌       | `0`         | Minimum number of idle browsers to keep warm for each browser configuration signature that has already been used.                                                              |
+| `scrapeConfig.puppeteer.idleBrowserTTL`          | `number`         | ❌       | `60_000`    | How long an idle pooled browser stays alive before it is closed, unless it is still required by `minWarmBrowsers`.                                                             |
+| `scrapeConfig.puppeteer.maxBrowserSessionTTL`    | `number`         | ❌       | `120_000`   | Maximum time (ms) a single page lease may stay open before it is auto-released and a warning is logged. Guards against providers that forget to call `browser.close()`.        |
+
+`ctx.puppeteer.launch(...)` leases a tab from a manager-owned browser pool. Calling the returned `browser.close()` releases that leased tab. Call `manager.destroy()` to close the underlying browser processes.
 
 ### `ProviderSource`
 
@@ -111,7 +119,7 @@ Fetches providers from a GitHub repository. Works in Node 18+, browsers, and Rea
 
 ```typescript
 // React Native example
-const manager = await ScrapePluginManager.create({
+const manager = await GrabitManager.create({
 	source: {
 		type: "github",
 		url: "https://github.com/username/providers-repo",
@@ -141,7 +149,7 @@ Providers are passed as pre-imported modules. Works in any JS runtime.
 ```typescript
 import myProvider from "./providers/my-provider";
 
-const manager = await ScrapePluginManager.create({
+const manager = await GrabitManager.create({
 	source: {
 		type: "registry",
 		name: "my-providers",
@@ -164,7 +172,7 @@ Auto-imports providers from a manifest using a user-supplied resolve function. W
 
 ```typescript
 // Node.js
-const manager = await ScrapePluginManager.create({
+const manager = await GrabitManager.create({
 	source: {
 		type: "local",
 		manifest: require("./manifest.json"),
@@ -210,7 +218,7 @@ The request object accepted by the manager's `getStreams()` and `getSubtitles()`
 | `media`             | `RequesterMovieMedia \| RequesterSerieMedia \| ChannelMedia` | ✅       | The movie, show, or channel you want to scrape. Can be a **partial** object — only `type` + `tmdbId` are required for movies; `type` + `tmdbId` + `season` + `episode` for series. TMDB fills the rest. |
 | `targetLanguageISO` | `string`                                                     | ✅       | Language code like `"en"` or `"fr"`. Used to fetch localized titles from TMDB.                                                                                                                          |
 | `userAgent`         | `string`                                                     | ❌       | Custom user-agent string for requests.                                                                                                                                                                  |
-| `proxyAgent`        | `HttpsProxyAgent \| SocksProxyAgent \| HttpProxyAgent`       | ❌       | Optional proxy for routing requests.                                                                                                                                                                    |
+| `proxy`             | `ProxyConfig` (`{ agent, auth? }` or `{ resolver, headers? }`) | ❌       | Optional proxy — a proxy agent, or a URL resolver that rewrites requests to a proxy endpoint. See [Configuration → Proxy](CONFIGURATION.md#proxy).                                                       |
 | `userIP`            | `string`                                                     | ❌       | Optional user IP address of the requester.                                                                                                                                                              |
 
 ### Examples
@@ -246,19 +254,20 @@ const fullStreams = await manager.getStreams({
 
 ## `ProviderModuleManifest`
 
-Describes a provider's metadata inside a manifest. The provider's unique scheme identifier is **not** stored inside this object — it is the key under which this manifest is registered in the `providers` map (e.g. `{ "my-provider": { name: "...", ... } }`).
+Describes a provider's metadata. The `scheme` field is the provider's unique identifier — it matches the key under which this manifest is registered in the `providers` map and is automatically populated by the engine when modules are loaded from any source.
 
-| Field                 | Type                    | Required | Description                                                                        |
-| --------------------- | ----------------------- | -------- | ---------------------------------------------------------------------------------- |
-| `name`                | `string`                | ✅       | Human-readable provider name.                                                      |
-| `version`             | `string`                | ✅       | Semver version string (e.g. `"1.0.0"`).                                            |
-| `active`              | `boolean`               | ✅       | Whether the provider is enabled.                                                   |
-| `language`            | `string \| string[]`    | ✅       | ISO language code(s) — single string (e.g. `"en"`) or array (e.g. `["en", "fr"]`). |
-| `type`                | `"media" \| "subtitle"` | ✅       | What the provider returns.                                                         |
-| `env`                 | `"node" \| "universal"` | ✅       | Runtime compatibility.                                                             |
-| `supportedMediaTypes` | `MediaType[]`           | ✅       | `"movie"`, `"serie"`, `"channel"`.                                                 |
-| `priority`            | `number`                | ❌       | Lower = higher priority (default: `0`).                                            |
-| `dir`                 | `string`                | ❌       | Directory path for the provider folder.                                            |
+| Field                 | Type                    | Required | Description                                                                                             |
+| --------------------- | ----------------------- | -------- | ------------------------------------------------------------------------------------------------------- |
+| `scheme`              | `string`                | ✅       | Provider scheme identifier (e.g. `"opensubtitles"`). Populated automatically from the registry map key. |
+| `name`                | `string`                | ✅       | Human-readable provider name.                                                                           |
+| `version`             | `string`                | ✅       | Semver version string (e.g. `"1.0.0"`).                                                                 |
+| `active`              | `boolean`               | ✅       | Whether the provider is enabled.                                                                        |
+| `language`            | `string \| string[]`    | ✅       | ISO language code(s) — single string (e.g. `"en"`) or array (e.g. `["en", "fr"]`).                      |
+| `type`                | `"media" \| "subtitle"` | ✅       | What the provider returns.                                                                              |
+| `env`                 | `"node" \| "universal"` | ✅       | Runtime compatibility.                                                                                  |
+| `supportedMediaTypes` | `MediaType[]`           | ✅       | `"movie"`, `"serie"`, `"channel"`.                                                                      |
+| `priority`            | `number`                | ❌       | Lower = higher priority (default: `0`).                                                                 |
+| `dir`                 | `string`                | ❌       | Directory path for the provider folder.                                                                 |
 
 ---
 
@@ -294,17 +303,34 @@ A detailed health snapshot returned by `getMetricsReport()`.
 
 The context object passed as the second argument to every `getStreams` / `getSubtitles` handler.
 
-| Property              | Type                                                   | Required | Description                                                                                                                                                                                                |
-| --------------------- | ------------------------------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `xhr.fetch`           | `(url, options, requester) => Promise<Response>`       | ✅       | Makes an HTTP request, automatically applying the requester's user-agent and proxy. Supports timeout and retry options.                                                                                    |
-| `xhr.fetchResponse`   | `(url, options, requester) => Promise<T>`              | ✅       | Like `fetch` but parses and returns the typed response body directly.                                                                                                                                      |
-| `xhr.handleResponse`  | `(response) => Promise<T>`                             | ✅       | Parses a raw `Response` object into a typed value, throwing on error status codes.                                                                                                                         |
-| `xhr.status`          | `(url, options, requester) => Promise<{ ok, status }>` | ✅       | Lightweight check — returns whether the request succeeded and its HTTP status code.                                                                                                                        |
-| `cheerio.$load`       | `(html: string) => CheerioAPI`                         | ✅       | Direct access to `cheerio.load` for parsing raw HTML strings you already have, without making an HTTP request.                                                                                             |
-| `cheerio.load`        | `(url, requester, xhrCtx) => Promise<{ $, response }>` | ✅       | Fetches a page and loads it into Cheerio for DOM traversal. Mimics a real browser request with appropriate headers.                                                                                        |
-| `cheerio.sortResults` | `($page, selectors, requester) => Promise<Result[]>`   | ✅       | Scores and sorts search result elements by similarity to the requester's media (title, year, duration). Score range: 0–170 for movies/series, 0–100 for channels.                                          |
-| `puppeteer.launch`    | `(url, request) => Promise<{ browser, page }>`         | ✅       | **Node.js only.** Launches a headless real browser via `puppeteer-real-browser`. Handles Cloudflare challenges automatically.                                                                              |
-| `log`                 | `DebugLogger`                                          | ✅       | Scoped debug logger bound to this provider's scheme. Provides `.info()`, `.warn()`, `.error()`, and `.debug()` methods. Output respects the manager's `debug` flag — always on in the `test-provider` CLI. |
+| Property              | Type                                                   | Required | Description                                                                                                                                                                                                                                                        |
+| --------------------- | ------------------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `xhr.fetch`           | `(url, options, requester) => Promise<Response>`       | ✅       | Makes an HTTP request, automatically applying the requester's user-agent and proxy. Supports timeout and retry options.                                                                                                                                            |
+| `xhr.fetchResponse`   | `(url, options, requester) => Promise<T>`              | ✅       | Like `fetch` but parses and returns the typed response body directly.                                                                                                                                                                                              |
+| `xhr.handleResponse`  | `(response) => Promise<T>`                             | ✅       | Parses a raw `Response` object into a typed value, throwing on error status codes.                                                                                                                                                                                 |
+| `xhr.status`          | `(url, options, requester) => Promise<{ ok, status }>` | ✅       | Lightweight check — returns whether the request succeeded and its HTTP status code.                                                                                                                                                                                |
+| `cheerio.$load`       | `(html: string) => CheerioAPI`                         | ✅       | Direct access to `cheerio.load` for parsing raw HTML strings you already have, without making an HTTP request.                                                                                                                                                     |
+| `cheerio.load`        | `(url, requester, xhrCtx) => Promise<{ $, response }>` | ✅       | Fetches a page and loads it into Cheerio for DOM traversal. Mimics a real browser request with appropriate headers.                                                                                                                                                |
+| `cheerio.sortResults` | `($page, selectors, requester) => Promise<Result[]>`   | ✅       | Scores and sorts search result elements by similarity to the requester's media (title, year, duration). Score range: 0–170 for movies/series, 0–100 for channels.                                                                                                  |
+| `puppeteer.launch`    | `(url, request) => Promise<{ browser, page }>`         | ✅       | **Node.js only.** Acquires a tab from a manager-owned real browser pool backed by `puppeteer-real-browser`. Handles Cloudflare challenges automatically. Use `browsingOptions.ignoreError` to continue when `page.goto(...)` returns a non-OK or missing response. |
+| `log`                 | `DebugLogger`                                          | ✅       | Scoped debug logger bound to this provider's scheme. Provides `.info()`, `.warn()`, `.error()`, and `.debug()` methods. Output respects the manager's `debug` flag — always on in the `test-provider` CLI.                                                         |
+
+---
+
+## `PuppeteerLoadRequest`
+
+Request shape accepted by `ctx.puppeteer.launch(url, request)`.
+
+| Field                          | Type                                                                             | Required | Default              | Description                                                                                                     |
+| ------------------------------ | -------------------------------------------------------------------------------- | -------- | -------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `requester`                    | `ScrapeRequester`                                                                | ✅       | —                    | The active scrape requester. Its proxy and user-agent settings are forwarded into the browser session.          |
+| `browsingOptions.loadCriteria` | `"domcontentloaded" \| "load" \| "networkidle0" \| "networkidle2" \| Array<...>` | ❌       | `"domcontentloaded"` | Puppeteer wait condition passed to `page.goto(...)`.                                                            |
+| `browsingOptions.extraHeaders` | `Record<string, string>`                                                         | ❌       | —                    | Extra request headers to attach before navigation.                                                              |
+| `browsingOptions.ignoreError`  | `boolean`                                                                        | ❌       | `false`              | Skip the default navigation error thrown when `page.goto(...)` returns a non-OK response or no response object. |
+
+`browsingOptions` also accepts the supported `puppeteer-real-browser` connect options, except `headless`, `proxy`, and `args`, which are managed by the engine.
+
+> **Note:** The `test-provider` CLI disables headless mode automatically for Puppeteer-based providers so you can inspect the browser during local debugging.
 
 ---
 
@@ -315,9 +341,9 @@ Options accepted by `ctx.xhr.fetch` / `ctx.xhr.fetchResponse` / `ctx.xhr.status`
 | Field             | Type      | Required | Default | Description                                                         |
 | ----------------- | --------- | -------- | ------- | ------------------------------------------------------------------- |
 | `attachUserAgent` | `boolean` | ❌       | `false` | Attach the requester's `User-Agent` header to the request.          |
-| `attachProxy`     | `boolean` | ❌       | `true`  | Route the request through the requester's proxy if one is provided. |
 
-> Also accepts all fields from `RequestInit`, `RequestRetryInit`, and `RequestTimeoutInit`.
+> The requester's proxy (if any) is always applied — providers can't opt out. Also accepts all
+> fields from `RequestInit`, `RequestRetryInit`, and `RequestTimeoutInit`.
 
 ---
 
@@ -580,20 +606,59 @@ General-purpose runtime helpers.
 | `isDevelopment`         | `() → boolean`                                   | `true` when `process.env.ENV !== "production"`.                           |
 | `isNode`                | `() → boolean`                                   | `true` when running in a Node.js environment.                             |
 | `isCustomError`         | `(error) → error is HttpError \| ProcessError`   | Type guard for custom error classes.                                      |
-| `sanitizeMessage`       | `(value) → string`                               | Strips escaped quotes and normalises whitespace.                          |
 | `minutesToMilliseconds` | `(minutes) → number`                             | Converts minutes → ms.                                                    |
 | `hoursToMilliseconds`   | `(hours) → number`                               | Converts hours → ms.                                                      |
 | `secondsToMilliseconds` | `(seconds) → number`                             | Converts seconds → ms.                                                    |
 | `customParseInt`        | `(input) → number`                               | Parses a digit-only string; returns `NaN` for anything else.              |
 | `commaSplitter`         | `(input) → string[]`                             | Splits a comma-separated string, trimming each part.                      |
 | `delay`                 | `(ms) → Promise<void>`                           | Awaitable sleep.                                                          |
-| `retriesCount`          | `(attempts, maxAttempts, retryScore?) → number`  | Computes the logical retry row number.                                    |
 | `excuteWithRetries`     | `(fn, maxAttempts?, backoffDelay?) → Promise<T>` | Runs `fn` up to `maxAttempts` times with optional delay between attempts. |
 | `sorter`                | `(items, compareFn) → Promise<T[]>`              | Async merge-sort with an async comparator.                                |
 | `createCookiesFromSet`  | `(headers) → string`                             | Converts `Set-Cookie` headers into a single `Cookie` header string.       |
 | `joinCookies`           | `(existingCookies, newCookies) → string`         | Merges two cookie strings, deduplicating entries.                         |
 | `attachExtension`       | `(extension, urlOrPath) → string`                | Appends or replaces the file extension on a URL or path.                  |
 | `shuffleArray`          | `(array) → T[]`                                  | Returns a new array with elements randomly shuffled (Fisher–Yates).       |
+
+### React Native / browser (`utils/native`)
+
+Helpers for loading the `github` source outside Node. Exported from the package root.
+
+| Function             | Signature                                                       | Description                                                                                                                            |
+| -------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `moduleResolver`     | `(scheme, sourceCode) → Promise<ProviderModule>`                | Default `moduleResolver` for `GithubSource`. Evaluates a fetched bundle with the `Function` constructor (Hermes-safe, unlike `eval`) and re-throws failures with the provider scheme attached. |
+| `setupGrabitGlobals` | `(options?: GrabitGlobalsOptions) → GrabitGlobalsReport`        | Registers the globals bundled providers read at runtime and reports runtime support. Call once before creating a manager. Never overwrites existing globals. |
+
+**`GrabitGlobalsOptions`**
+
+| Field    | Type      | Description                                                                                            |
+| -------- | --------- | ------------------------------------------------------------------------------------------------------ |
+| `crypto` | `unknown` | Crypto implementation, exposed as `globalThis.__grabitCrypto`. In RN: `require("react-native-quick-crypto")`. Optional. |
+| `buffer` | `unknown` | Buffer implementation, exposed as `globalThis.Buffer`. In RN: `require("@craftzdog/react-native-buffer").Buffer`. Optional but required for providers that decode binary data — RN has no global `Buffer`. |
+| `base64` | `{ encode, decode }` | base64 codec used to polyfill `globalThis.btoa` / `globalThis.atob` on runtimes that lack them (RN < 0.74). In RN: `require("base-64")`. Ignored when the runtime already provides both. |
+
+**`GrabitGlobalsReport`**
+
+| Field                 | Type       | Description                                                             |
+| --------------------- | ---------- | ----------------------------------------------------------------------- |
+| `crypto`              | `boolean`  | `globalThis.__grabitCrypto` is set.                                     |
+| `buffer`              | `boolean`  | `globalThis.Buffer` is set.                                             |
+| `atob`                | `boolean`  | `atob` exists globally (RN ≥ 0.74 provides it).                         |
+| `functionConstructor` | `boolean`  | The `Function` constructor works — the GitHub-source model requires it. |
+| `errors`              | `string[]` | Assignment failures, one per failed global.                             |
+
+```ts
+import { GrabitManager, moduleResolver, setupGrabitGlobals } from "grabit-engine";
+import QuickCrypto from "react-native-quick-crypto";
+import { Buffer } from "@craftzdog/react-native-buffer";
+import base64 from "base-64";
+
+setupGrabitGlobals({ crypto: QuickCrypto, buffer: Buffer, base64 });
+
+const manager = await GrabitManager.create({
+	source: { type: "github", url: "owner/repo", branch: "main", moduleResolver },
+	tmdbApiKeys: [KEY],
+});
+```
 
 ---
 
@@ -610,18 +675,22 @@ Utilities for handling P.A.C.K.E.R.-obfuscated JavaScript.
 
 ### Crypto (`services/crypto`)
 
-Re-exports Node's built-in `crypto` module as a named export for cross-environment use.
+Re-exports Node's built-in `crypto` module as a named export.
 
-For **React Native**, the native `crypto` module is not available. Install [`react-native-quick-crypto`](https://www.npmjs.com/package/react-native-quick-crypto) as a drop-in polyfill:
+> **Node.js only.** This export is reachable from the Node entry point (`require("grabit-engine")` or an ESM import resolved through the `node` condition). It is deliberately absent from the browser and React Native entry points: it imports the Node built-in `crypto`, which Webpack, Vite and Metro do not polyfill, so a bundle that included it would fail to build.
+
+For **browsers and React Native**, pass a crypto implementation to [`setupGrabitGlobals`](#react-native--browser-helpers-utilsnative) instead. In React Native install [`react-native-quick-crypto`](https://www.npmjs.com/package/react-native-quick-crypto):
 
 ```bash
 npm install react-native-quick-crypto
 ```
 
-This module also polyfills `atob` / `btoa` for environments that don't expose them globally (e.g. React Native < 0.74), using the optional peer dependency [`base-64`](https://www.npmjs.com/package/base-64).
+`atob` / `btoa` are likewise not polyfilled here. Runtimes that lack them (React Native < 0.74) get them from `setupGrabitGlobals({ base64: require("base-64") })`.
+
+GitHub-loaded provider bundles resolve `Crypto` at runtime from `react-native-quick-crypto`, `crypto`, `globalThis.__grabitCrypto`, or `globalThis.crypto`, so React Native apps should register the global before evaluating remote provider source.
 
 ```typescript
-import { Crypto } from "grabit-engine";
+import { Crypto } from "grabit-engine"; // Node.js entry point
 
 const hash = Crypto.createHash("md5").update("hello").digest("hex");
 ```

@@ -1,59 +1,99 @@
 import cheerioCore from "../core/cheerio.ts";
 import puppeteerCore, { disableHeadlessMode } from "../core/puppeteer.ts";
+import { configurePuppeteerPool, releasePuppeteerPool, retainPuppeteerPool } from "./puppeteerPool.ts";
 import xhrCore from "../core/xhr.ts";
-import { ScrapeRequester, MediaSource, SubtitleSource, ProviderModule, ProviderModuleManifest, RawScrapeRequester } from "../types/index.ts";
+import { solveChallenge } from "../core/solver.ts";
+import { ScrapeRequester, MediaSource, SubtitleSource, ProviderModule, ProviderModuleManifest, RawScrapeRequester, resolveFetchControls } from "../types/index.ts";
 import { ProviderContext } from "../types/models/Context.ts";
 import { ProviderManagerConfig, IProviderManagerWorkers } from "../types/models/Manager.ts";
-import { DebugLogger } from "../utils/logger.ts";
+import { DebugLogger, Logger } from "../utils/logger.ts";
 import { excuteWithRetries, isDevelopment, isNode, secondsToMilliseconds } from "../utils/standard.ts";
-import { isSourceCached, CACHE } from "../services/cache.ts";
+import { formatTimestamp, sortByTargetLanguage } from "../utils/internal.ts";
+import { isSourceCached } from "../services/cache.ts";
 import pLimit, { LimitFunction } from "p-limit";
 import { ModuleManager, ProviderHealthReport, ProviderMetrics } from "./module.ts";
 import { TMDB } from "../services/tmdb.ts";
 
 /**
- * ScrapePluginManager is the main class responsible
+ * GrabitManager is the main class responsible
  * for managing provider modules, including loading, caching, refreshing, and health monitoring.
  */
-export class ScrapePluginManager extends ModuleManager implements IProviderManagerWorkers {
+export class GrabitManager extends ModuleManager implements IProviderManagerWorkers {
 	private static logger: DebugLogger;
 	private static context: ProviderContext;
-	private static instance: ScrapePluginManager;
+	private static instance: GrabitManager;
+	/**
+	 * In-flight `create()` call. The instance is published synchronously before the
+	 * `await` on module loading, so a second concurrent `create()` used to receive a
+	 * manager with zero providers while the first was still fetching — easy to hit with
+	 * React StrictMode's double-mount or two screens mounting at once. Callers now await
+	 * the same promise.
+	 */
+	private static pending: Promise<GrabitManager> | null = null;
 	private limiters: LimitFunction[] = [];
+	/** One controller per active operation; aborted by `closeOperations` to cancel in-flight fetches. */
+	private operationControllers: AbortController[] = [];
 
 	private constructor(config: ProviderManagerConfig) {
 		super(config);
-		ScrapePluginManager.logger = new DebugLogger(config.debug ?? isDevelopment(), "ScrapePluginManager");
-		ScrapePluginManager.context = ScrapePluginManager.createContext();
+		Logger.enableDebugging(config.debug ?? isDevelopment());
+		GrabitManager.logger = new DebugLogger(config.debug ?? isDevelopment(), "GrabitManager");
+		// The Puppeteer pool is process-global, so it is reference-counted: only the
+		// first manager sizes it, and only the last one to be destroyed shuts it down.
+		if (retainPuppeteerPool()) configurePuppeteerPool(config.scrapeConfig?.puppeteer);
+		else GrabitManager.logger.debug("Puppeteer pool already held by another manager — keeping its existing configuration");
+
+		GrabitManager.context = GrabitManager.createContext();
 
 		// Initialize the TMDB API with the provided keys and optional cache TTL
 		TMDB.init(config.tmdbApiKeys, { cacheTTL: config.cache?.TMDB_TTL });
 	}
 
 	/** Creates a new provider manager singleton instance */
-	public static async create(config: ProviderManagerConfig): Promise<ScrapePluginManager> {
-		if (ScrapePluginManager.instance) {
-			ScrapePluginManager.logger.warn("ScrapePluginManager instance already exists. Returning existing instance.");
-			return ScrapePluginManager.instance;
+	public static async create(config: ProviderManagerConfig): Promise<GrabitManager> {
+		if (GrabitManager.instance) {
+			GrabitManager.logger?.debug("GrabitManager instance already exists. Returning existing instance.");
+			return GrabitManager.instance;
 		}
-		const manager = new ScrapePluginManager(config);
-		ScrapePluginManager.instance = manager;
+		// A create() is already running — join it instead of racing a second one.
+		if (GrabitManager.pending) return GrabitManager.pending;
 
-		// Check if the source is cached
-		const cached = isSourceCached(config.source);
-		if (cached) manager.loadModules();
-		else {
-			// If not cached, initialize modules and save to cache
-			await manager.initializeModules();
-			manager.saveModules();
+		GrabitManager.pending = GrabitManager.initialize(config).finally(() => {
+			GrabitManager.pending = null;
+		});
+		return GrabitManager.pending;
+	}
+
+	/** Builds the singleton. Always invoked through {@link GrabitManager.create}. */
+	private static async initialize(config: ProviderManagerConfig): Promise<GrabitManager> {
+		const manager = new GrabitManager(config);
+		GrabitManager.instance = manager;
+
+		try {
+			// `isSourceCached` only proves an entry existed a moment ago; `loadModules`
+			// re-reads it and can still miss (expired between the two calls, or caching
+			// disabled). Its result was previously discarded, which left the manager with
+			// zero providers and no fetch to recover.
+			const loadedFromCache = isSourceCached(config.source) && manager.loadModules();
+			if (!loadedFromCache) {
+				await manager.initializeModules();
+				manager.saveModules();
+			}
+
+			// Restore previously persisted health metrics (if available)
+			manager.restoreMetrics();
+
+			// Start auto-update service
+			manager.startAutoUpdateService();
+			return manager;
+		} catch (error) {
+			// Never leave a half-built singleton behind — the next create() would return it
+			// instead of retrying. The constructor already claimed a pool holder slot, so
+			// give it back or the pool can never shut down.
+			releasePuppeteerPool();
+			GrabitManager.instance = undefined!;
+			throw error;
 		}
-
-		// Restore previously persisted health metrics (if available)
-		manager.restoreMetrics();
-
-		// Start auto-update service
-		manager.startAutoUpdateService();
-		return manager;
 	}
 
 	/** Disable headless mode in Puppeteer */
@@ -77,6 +117,7 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 		return {
 			xhr: xhrCore,
 			cheerio: cheerioCore,
+			solveChallenge,
 			puppeteer: puppeteerCore,
 			log: this.logger
 		};
@@ -85,10 +126,16 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 	/** Create an operation with concurrency and retry handling */
 	private async createOperation<T>(
 		modules: ProviderModule[],
-		fn: (module: ProviderModule, limiter: LimitFunction) => Promise<T>,
-		options?: { ignoreQuorum?: boolean; onPartialResult?: (result: T) => void }
+		fn: (module: ProviderModule, limiter: LimitFunction, signal: AbortSignal) => Promise<T[]>,
+		options?: { ignoreQuorum?: boolean; onPartialResult?: (result: T[]) => void }
 	) {
-		const { successQuorum, maxAttempts = 1, concurrentOperations = 5, operationTimeout = secondsToMilliseconds(15) } = this.config.scrapeConfig || {};
+		const {
+			successQuorum,
+			waitForActiveProvidersAfterQuorum = false,
+			maxAttempts = 1,
+			concurrentOperations = 5,
+			operationTimeout = secondsToMilliseconds(15)
+		} = this.config.scrapeConfig || {};
 		const { ignoreQuorum = false, onPartialResult } = options ?? {};
 
 		// Create concurrency limiter
@@ -98,24 +145,45 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 		});
 		this.limiters.push(limit); // Keep track of limiters to clear them if needed (e.g., on timeout)
 
-		// Collect results and track settled tasks
-		const collected: T[] = [];
+		// One abort controller per operation — its signal reaches provider fetches
+		// so `closeOperations()` can cancel work that is already in flight.
+		const abortController = new AbortController();
+		this.operationControllers.push(abortController);
+
+		// Collect non-empty provider results and track settled tasks
+		const collected: T[][] = [];
 		let settled = 0;
+		let startedCount = 0;
+		let providersWithResults = 0;
+		let completed = false;
+		let quorumReached = false;
 
 		// Wrap the whole operation in a promise that resolves when either:
 		// 1) The success quorum is reached
 		// 2) All tasks have settled
 		// 3) The operation timeout fires
-		const operationPromise = new Promise<T[]>((resolve) => {
+		const operationPromise = new Promise<T[][]>((resolve) => {
 			const tryResolve = () => {
-				// Quorum reached — short-circuit
-				if (!ignoreQuorum && successQuorum !== undefined && collected.length >= successQuorum) {
-					limit.clearQueue(); // Cancel queued (not-yet-started) tasks
-					resolve(collected);
-					return;
+				if (completed) return;
+
+				if (!ignoreQuorum && successQuorum !== undefined && providersWithResults >= successQuorum) {
+					if (!quorumReached) {
+						quorumReached = true;
+						// Quorum satisfied — drop queued work immediately. If configured,
+						// keep waiting only for providers that already occupied a running slot.
+						limit.clearQueue();
+					}
+
+					if (!waitForActiveProvidersAfterQuorum || settled >= startedCount) {
+						completed = true;
+						resolve(collected);
+						return;
+					}
 				}
-				// All tasks settled
+
+				// Normal path: all scheduled tasks have settled (no quorum configured)
 				if (settled >= modules.length) {
+					completed = true;
 					resolve(collected);
 				}
 			};
@@ -123,12 +191,22 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 			// Schedule each provider task inside the concurrency limiter
 			for (const module of modules) {
 				limit(async () => {
+					startedCount++; // Increment synchronously before any await so quorum can distinguish active vs queued work.
 					try {
-						const result = await excuteWithRetries(() => fn(module, limit), maxAttempts);
-						this.recordMetrics(module.provider.config.scheme, true);
-						if (result !== null && result !== undefined) {
+						const result = await excuteWithRetries(() => fn(module, limit, abortController.signal), maxAttempts);
+						// A provider that returns nothing is not healthy — a site redesign makes
+						// selectors match nothing without throwing, and scoring that as a success
+						// meant auto-disable could never trip for it.
+						const produced = Array.isArray(result) && result.length > 0;
+						this.recordMetrics(module.provider.config.scheme, produced);
+						if (produced) {
 							collected.push(result);
+							providersWithResults++;
 							onPartialResult?.(result);
+						} else {
+							GrabitManager.logger.debug(
+								`Provider "${module.provider.config.scheme}" completed without ${Array.isArray(result) ? "results" : "a valid result payload"}.`
+							);
 						}
 					} catch {
 						this.recordMetrics(module.provider.config.scheme, false);
@@ -147,20 +225,28 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 
 		// Race against the operation timeout
 		let timeoutId: ReturnType<typeof setTimeout> | undefined;
-		const timeoutPromise = new Promise<T[]>((resolve) => {
+		const timeoutPromise = new Promise<T[][]>((resolve) => {
 			timeoutId = setTimeout(() => {
-				limit.clearQueue();
-				ScrapePluginManager.logger.warn(`Operation timed out after ${operationTimeout}ms — returning ${collected.length} result(s) collected so far`);
+				limit.clearQueue(); // drops QUEUED work only
+				// Providers already occupying a concurrency slot keep fetching, parsing and
+				// holding pooled browsers unless they are aborted here — and the controller is
+				// dropped below, so closeOperations() would have no handle on them afterwards.
+				abortController.abort();
+				GrabitManager.logger.warn(
+					`Operation timed out after ${operationTimeout}ms — returning ${providersWithResults} provider result set(s) collected so far`
+				);
 				resolve(collected);
 			}, operationTimeout);
 		});
 
 		const results = await Promise.race([operationPromise, timeoutPromise]);
 		clearTimeout(timeoutId); // Prevent the timer from firing after the operation completed
-		ScrapePluginManager.logger.info(`Operation completed: ${results.length}/${modules.length} provider(s) succeeded`);
+		const totalSources = results.reduce((count, providerResults) => count + providerResults.length, 0);
+		GrabitManager.logger.info(`Operation completed: ${providersWithResults}/${modules.length} provider(s) returned results (${totalSources} total item(s))`);
 
-		// Remove the current limiter from the manager's list to prevent memory leaks
+		// Remove the current limiter and controller from the manager's lists to prevent memory leaks
 		this.limiters = this.limiters.filter((limiter) => limiter !== limit);
+		this.operationControllers = this.operationControllers.filter((controller) => controller !== abortController);
 
 		// Join result from all providers into a single array
 		return results.flat();
@@ -171,7 +257,7 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 	 *
 	 * Every public `getStreams` / `getSubtitles` / progressive variant delegates here.
 	 */
-	private async scrapeProviders<T>(
+	private async scrapeProviders<T extends { language: string }>(
 		rawRequester: RawScrapeRequester,
 		providerType: ProviderModuleManifest["type"],
 		worker: (module: ProviderModule, requester: ScrapeRequester, context: ProviderContext) => Promise<T[]>,
@@ -180,54 +266,83 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 		const requester: ScrapeRequester = {
 			...rawRequester,
 			targetLanguageISO: rawRequester.targetLanguageISO.split("-")[0].toLowerCase(),
-			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester)
+			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester),
+			// Fall back to the manager's default proxy when the request omits one.
+			proxy: rawRequester.proxy ?? this.config.proxy
 		};
 
 		const providers = this.getProvidersByRequest(providerType, requester);
 		if (providers.length === 0) {
-			ScrapePluginManager.logger.warn(`No providers found that support ${providerType} type "${requester.media.type}" for the given request`);
+			GrabitManager.logger.warn(`No providers found that support ${providerType} type "${requester.media.type}" for the given request`);
 			return [];
 		}
 
 		// Mapped media by language for the modules (For CACHE USE ROTATION)
 		const mediaByLanguage = new Map<string, ScrapeRequester["media"]>([[requester.targetLanguageISO, requester.media]]);
 
-		const fn = async (module: ProviderModule, _limiter: LimitFunction) => {
+		const fn = async (module: ProviderModule, _limiter: LimitFunction, signal: AbortSignal) => {
 			const moduleLang = Array.isArray(module.meta.language) ? module.meta.language[0] : module.meta.language;
-			const media = mediaByLanguage.get(requester.targetLanguageISO) ?? (await TMDB.createRequesterMedia(rawRequester));
-			mediaByLanguage.set(moduleLang, media);
 
-			// Rotate the requester media based on the declared language
-			// I have done this because some providers primary language is not primary of the requester but does sent media source of that language
-			// and to make sure that not the wrong title is sent we do this rotation
-			requester.media = media;
-			requester.targetLanguageISO = moduleLang;
-			return await worker(module, requester, ScrapePluginManager.context);
+			// Fetch or retrieve cached media for this module's declared language.
+			// When the module's language differs from the requester's, TMDB is called with
+			// that language so localized titles/metadata are correct for the provider.
+			let media = mediaByLanguage.get(moduleLang);
+			if (!media) {
+				media = rawRequester.media.type === "channel" ? requester.media : await TMDB.createRequesterMedia({ ...rawRequester, targetLanguageISO: moduleLang });
+				mediaByLanguage.set(moduleLang, media);
+			}
+
+			// Build a per-invocation copy to avoid mutating the shared requester across concurrent operations.
+			// Fetch controls come from the provider config (concurrency/rate-limit/coalesce on by default).
+			const localRequester: ScrapeRequester = {
+				...requester,
+				media,
+				targetLanguageISO: moduleLang,
+				signal,
+				fetchControls: resolveFetchControls(module.provider.config.xhr)
+			};
+			GrabitManager.logger.debug(`[${formatTimestamp()}] Dispatching ${providerType} scrape to provider "${module.provider.config.scheme}"`, {
+				targetLanguageISO: localRequester.targetLanguageISO,
+				media: localRequester.media
+			});
+			return await worker(module, localRequester, GrabitManager.context);
 		};
 
-		return await this.createOperation(providers, fn, operationOptions);
+		const results = await this.createOperation(providers, fn, operationOptions);
+		return sortByTargetLanguage(results, requester.targetLanguageISO);
 	}
 
 	// --------------------------------------------------
 	// --------------- Public API methods ---------------
 	// --------------------------------------------------
 
-	/** Close all active operations and clear limiters */
+	/** Close all active operations: abort in-flight fetches and drop queued work. */
 	public closeOperations() {
+		// Abort first so provider fetches already running are cancelled, then clear
+		// the queues so nothing new starts.
+		this.operationControllers.forEach((controller) => controller.abort());
+		this.operationControllers = [];
 		this.limiters.forEach((limiter) => limiter.clearQueue());
 		this.limiters = [];
 	}
 
 	/** Tear down the manager: stop auto-updates, cancel queued operations, and release the singleton.
-	 *  After calling `destroy()` a new instance can be created via `ScrapePluginManager.create()`.
+	 *  After calling `destroy()` a new instance can be created via `GrabitManager.create()`.
 	 */
 	public destroy() {
 		this.stopAutoUpdateService();
+		this.flushMetrics();
 		this.closeOperations();
-		CACHE.stopAutoCleanup();
-		ScrapePluginManager.instance = undefined!;
-		ScrapePluginManager.context = undefined!;
-		ScrapePluginManager.logger = undefined!;
+		// Reference-counted: browsers are only closed once no other manager holds the pool.
+		releasePuppeteerPool();
+		// CACHE is a module-level singleton shared by every manager lifecycle, and its
+		// entries deliberately outlive a manager so the next create() can skip refetching.
+		// Stopping its sweeper here permanently disabled expiry cleanup for the rest of the
+		// process after the very first destroy — expired entries then lingered until some
+		// later get()/has() happened to evict them lazily.
+		GrabitManager.instance = undefined!;
+		GrabitManager.context = undefined!;
+		GrabitManager.logger = undefined!;
 	}
 
 	/** Returns a read-only snapshot of the current health metrics for all tracked modules */
@@ -258,11 +373,15 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 
 	/** Get the list of providers by the supported requester */
 	public getProvidersByRequest(type: ProviderModuleManifest["type"], requester: ScrapeRequester) {
+		// Environment never changes at runtime — hoisted out of the predicate so it is
+		// resolved once per call instead of once per loaded module.
+		const runningOnNode = isNode();
+
 		// Filter providers that support the requested media type and scheme
 		const matchingProviders = this.loadedModules.filter((module) => {
 			// In node anything is compatible
 			// but in native enviroment only the universal providers should be included
-			const envCompatible = isNode() ? true : module.meta.env === "universal";
+			const envCompatible = runningOnNode ? true : module.meta.env === "universal";
 			// Filter based on the media type
 			const typeCompatible =
 				(type === "subtitle" && module.workers.getSubtitles !== undefined) || //..
@@ -318,41 +437,73 @@ export class ScrapePluginManager extends ModuleManager implements IProviderManag
 		return this.scrapeProviders(rawRequester, "subtitle", (mod, req, ctx) => mod.workers.getSubtitles!(req, ctx), { ignoreQuorum: true, onPartialResult });
 	}
 
-	public async getStreamsByScheme(scheme: string, requester: ScrapeRequester): Promise<MediaSource[]> {
-		requester.targetLanguageISO = requester.targetLanguageISO.split("-")[0].toLowerCase();
-
+	public async getStreamsByScheme(scheme: string, rawRequester: RawScrapeRequester): Promise<MediaSource[]> {
 		const module = this.moduleByScheme(scheme);
 		if (!module) {
-			ScrapePluginManager.logger.warn(`No active provider found for scheme "${scheme}"`);
+			GrabitManager.logger.warn(`No active provider found for scheme "${scheme}"`);
 			return [];
 		}
 		if (!module.workers.getStreams) {
-			ScrapePluginManager.logger.warn(`Provider "${module.meta.name}" (scheme "${scheme}") does not implement getStreams`);
+			GrabitManager.logger.warn(`Provider "${module.meta.name}" (scheme "${scheme}") does not implement getStreams`);
 			return [];
 		}
 
-		const fn = async (mod: ProviderModule, _limiter: LimitFunction) => {
-			return await mod.workers.getStreams!(requester, ScrapePluginManager.context);
+		const requester: ScrapeRequester = {
+			...rawRequester,
+			targetLanguageISO: rawRequester.targetLanguageISO.split("-")[0].toLowerCase(),
+			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester),
+			// Fall back to the manager's default proxy when the request omits one.
+			proxy: rawRequester.proxy ?? this.config.proxy
 		};
-		return await this.createOperation([module], fn);
+
+		const results = await this.createOperation([module], (mod, _limiter, signal) =>
+			mod.workers.getStreams!({ ...requester, signal }, GrabitManager.context)
+		);
+		return sortByTargetLanguage(results, requester.targetLanguageISO);
 	}
 
-	public async getSubtitlesByScheme(scheme: string, requester: ScrapeRequester): Promise<SubtitleSource[]> {
-		requester.targetLanguageISO = requester.targetLanguageISO.split("-")[0].toLowerCase();
-
+	public async getSubtitlesByScheme(scheme: string, rawRequester: RawScrapeRequester): Promise<SubtitleSource[]> {
 		const module = this.moduleByScheme(scheme);
 		if (!module) {
-			ScrapePluginManager.logger.warn(`No active provider found for scheme "${scheme}"`);
+			GrabitManager.logger.warn(`No active provider found for scheme "${scheme}"`);
 			return [];
 		}
 		if (!module.workers.getSubtitles) {
-			ScrapePluginManager.logger.warn(`Provider "${module.meta.name}" (scheme "${scheme}") does not implement getSubtitles`);
+			GrabitManager.logger.warn(`Provider "${module.meta.name}" (scheme "${scheme}") does not implement getSubtitles`);
 			return [];
 		}
 
-		const fn = async (mod: ProviderModule, _limiter: LimitFunction) => {
-			return await mod.workers.getSubtitles!(requester, ScrapePluginManager.context);
+		const requester: ScrapeRequester = {
+			...rawRequester,
+			targetLanguageISO: rawRequester.targetLanguageISO.split("-")[0].toLowerCase(),
+			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester),
+			// Fall back to the manager's default proxy when the request omits one.
+			proxy: rawRequester.proxy ?? this.config.proxy
 		};
-		return await this.createOperation([module], fn);
+
+		const results = await this.createOperation([module], (mod, _limiter, signal) =>
+			mod.workers.getSubtitles!({ ...requester, signal }, GrabitManager.context)
+		);
+		return sortByTargetLanguage(results, requester.targetLanguageISO);
+	}
+
+	/**
+	 * Resolve a lazy source on play. `id` comes from `source.lazy.id`;
+	 * returns the fully-resolved source, or null when it can't be resolved.
+	 */
+	public async resolveLazySource(scheme: string, id: string, rawRequester: RawScrapeRequester): Promise<MediaSource | null> {
+		const module = this.moduleByScheme(scheme);
+		if (!module?.workers.resolveLazy) {
+			GrabitManager.logger.warn(`Provider "${scheme}" does not implement resolveLazy`);
+			return null;
+		}
+		const requester: ScrapeRequester = {
+			...rawRequester,
+			targetLanguageISO: rawRequester.targetLanguageISO.split("-")[0].toLowerCase(),
+			media: rawRequester.media.type === "channel" ? rawRequester.media : await TMDB.createRequesterMedia(rawRequester),
+			// Fall back to the manager's default proxy when the request omits one.
+			proxy: rawRequester.proxy ?? this.config.proxy
+		};
+		return module.workers.resolveLazy(id, GrabitManager.context, requester);
 	}
 }

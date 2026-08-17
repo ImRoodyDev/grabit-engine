@@ -1,23 +1,23 @@
 /**
- * Shared test helpers for ScrapePluginManager test suites.
+ * Shared test helpers for GrabitManager test suites.
  *
  * Centralises stubs, factories, and reset utilities so every split test file
  * operates against an identical, deterministic baseline.
  */
-import { ScrapePluginManager } from "../../../src/controllers/manager";
+import { GrabitManager } from "../../../src/controllers/manager";
 import { CACHE } from "../../../src/services/cache";
 import { ProviderModule, ProviderManagerConfig, MediaSource, SubtitleSource, ScrapeRequester, IProviderModuleWorkers } from "../../../src/types";
 import { MovieMedia, SerieMedia } from "../../../src/types/input/Media";
 import { Provider } from "../../../src/models/provider";
 
-export { ScrapePluginManager as ScrapePluginManager } from "../../../src/controllers/manager";
+export { GrabitManager as GrabitManager } from "../../../src/controllers/manager";
 export { CACHE } from "../../../src/services/cache";
 
 // ─── Singleton reset ──────────────────────────────────────────────────────────
 
-/** Reset the ScrapePluginManager singleton + clear the global cache between tests */
+/** Reset the GrabitManager singleton + clear the global cache between tests */
 export function resetManager(): void {
-	const instance = (ScrapePluginManager as any).instance as ScrapePluginManager | undefined;
+	const instance = (GrabitManager as any).instance as GrabitManager | undefined;
 	if (instance) instance.destroy();
 	CACHE.clear();
 }

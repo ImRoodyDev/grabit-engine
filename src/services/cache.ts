@@ -13,8 +13,10 @@ export class Cache<T = any> {
 	private maxSize: number;
 
 	/**
-	 * @param maxSize Maximum number of entries before LRU-style eviction kicks in.
-	 *               Defaults to 10,000. Set to `Infinity` to disable eviction.
+	 * @param maxSize Maximum number of *entries* (not bytes) before least-recently-used
+	 *               eviction kicks in. Defaults to 10,000. Set to `Infinity` to disable
+	 *               eviction. Callers storing large payloads should cap entry size
+	 *               themselves — see `MAX_CACHEABLE_BODY` in `services/fetcher.ts`.
 	 */
 	constructor(maxSize: number = 10_000) {
 		this.maxSize = maxSize;
@@ -51,6 +53,11 @@ export class Cache<T = any> {
 			this.storage.delete(key);
 			return null;
 		}
+		// Touch on read: re-insert so the key moves to the end of the Map's insertion
+		// order. Without this, eviction is FIFO and a hot early entry is dropped before
+		// a cold late one. The TTL is left untouched — only recency changes.
+		this.storage.delete(key);
+		this.storage.set(key, entry);
 		return entry.data as unknown as G;
 	}
 

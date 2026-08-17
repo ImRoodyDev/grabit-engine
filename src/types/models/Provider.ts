@@ -63,6 +63,12 @@ export type ProviderConfig = {
 			/** Optional timeout in milliseconds for each request attempt */
 			timeout?: number;
 		};
+		/** Cap concurrent in-flight requests per host (default 10). */
+		maxHostConcurrency?: number;
+		/** Honor 429 Retry-After back-off (default true). */
+		honorRateLimit?: boolean;
+		/** Dedupe identical in-flight cacheable GETs (default true). */
+		coalesce?: boolean;
 	};
 	/** Whether to use the search algorithm for this provider
 	 * When enabled, the provider's search endpoint will be used to find media entries based on the requester's media information, and the results will be scored based on title, year, season/episode matches.
@@ -103,6 +109,30 @@ export type ProviderConfig = {
 		minimumMatchScore: number;
 	};
 };
+
+/** Per-host concurrency, rate-limit and coalescing controls for a provider's fetches.
+ *  Resolved from `config.xhr` and applied to every ctx.xhr call automatically. */
+export type TProviderFetchControls = {
+	maxHostConcurrency?: number;
+	honorRateLimit?: boolean;
+	coalesce?: boolean;
+};
+
+/** Defaults applied when a provider omits fetch controls (cacheTTL is intentionally not defaulted). */
+export const DEFAULT_PROVIDER_FETCH_CONTROLS: Required<TProviderFetchControls> = {
+	maxHostConcurrency: 10,
+	honorRateLimit: true,
+	coalesce: true
+};
+
+/** Resolve a provider's fetch controls, filling any omitted field with the default. */
+export function resolveFetchControls(xhr?: ProviderConfig["xhr"]): Required<TProviderFetchControls> {
+	return {
+		maxHostConcurrency: xhr?.maxHostConcurrency ?? DEFAULT_PROVIDER_FETCH_CONTROLS.maxHostConcurrency,
+		honorRateLimit: xhr?.honorRateLimit ?? DEFAULT_PROVIDER_FETCH_CONTROLS.honorRateLimit,
+		coalesce: xhr?.coalesce ?? DEFAULT_PROVIDER_FETCH_CONTROLS.coalesce
+	};
+}
 
 /** Mapping of media types to their corresponding endpoint patterns for a provider
  *  Query Parameters in endpoint patterns:

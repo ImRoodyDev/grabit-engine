@@ -1,4 +1,4 @@
-import { ScrapePluginManager } from "../../../src/controllers/manager";
+import { GrabitManager } from "../../../src/controllers/manager";
 import { CACHE } from "../../../src/services/cache";
 import { ProviderModule } from "../../../src/types";
 import { resetManager, GRAB_REQUEST, createMockModule, createRegistryConfig, mockMediaSource } from "./helpers";
@@ -12,7 +12,7 @@ jest.mock("../../../src/services/tmdb", () => ({
 
 afterEach(() => resetManager());
 
-describe("ScrapePluginManager › health metrics", () => {
+describe("GrabitManager › health metrics", () => {
 	beforeEach(() => resetManager());
 
 	it("should NOT disable a module before minOperationsForEvaluation is reached", async () => {
@@ -21,7 +21,7 @@ describe("ScrapePluginManager › health metrics", () => {
 			getStreams: jest.fn().mockRejectedValue(new Error("fail"))
 		});
 
-		const manager = await ScrapePluginManager.create(
+		const manager = await GrabitManager.create(
 			createRegistryConfig({ a: failing }, { scrapeConfig: { errorThresholdRate: 0.7, minOperationsForEvaluation: 5 } })
 		);
 
@@ -42,7 +42,7 @@ describe("ScrapePluginManager › health metrics", () => {
 			})
 		});
 
-		const manager = await ScrapePluginManager.create(
+		const manager = await GrabitManager.create(
 			createRegistryConfig({ a: flaky }, { scrapeConfig: { errorThresholdRate: 0.7, minOperationsForEvaluation: 5, maxAttempts: 1 } })
 		);
 
@@ -63,7 +63,7 @@ describe("ScrapePluginManager › health metrics", () => {
 			})
 		});
 
-		const manager = await ScrapePluginManager.create(
+		const manager = await GrabitManager.create(
 			createRegistryConfig({ a: decent }, { scrapeConfig: { errorThresholdRate: 0.7, minOperationsForEvaluation: 5, maxAttempts: 1 } })
 		);
 
@@ -86,14 +86,14 @@ describe("ScrapePluginManager › health metrics", () => {
 			}
 		);
 
-		const first = await ScrapePluginManager.create(config);
+		const first = await GrabitManager.create(config);
 		for (let i = 0; i < 4; i++) await first.getStreams(GRAB_REQUEST);
 
 		// Reset singleton but keep cache
-		(ScrapePluginManager as any).instance = undefined;
-		(ScrapePluginManager as any).context = undefined;
+		(GrabitManager as any).instance = undefined;
+		(GrabitManager as any).context = undefined;
 
-		const second = await ScrapePluginManager.create(config);
+		const second = await GrabitManager.create(config);
 		const modules = (second as any).loadedModules as ProviderModule[];
 		expect(modules.find((m) => m.meta.name === "cached-mod")?.meta.active).toBe(false);
 	});
@@ -113,13 +113,13 @@ describe("ScrapePluginManager › health metrics", () => {
 			);
 		};
 
-		const first = await ScrapePluginManager.create(makeConfig());
+		const first = await GrabitManager.create(makeConfig());
 		for (let i = 0; i < 4; i++) await first.getStreams(GRAB_REQUEST);
 
 		// Full reset including cache — metrics are lost
 		resetManager();
 
-		const second = await ScrapePluginManager.create(makeConfig());
+		const second = await GrabitManager.create(makeConfig());
 		const modules = (second as any).loadedModules as ProviderModule[];
 		expect(modules.find((m) => m.meta.name === "cleared-mod")?.meta.active).toBe(true);
 	});
@@ -130,7 +130,7 @@ describe("ScrapePluginManager › health metrics", () => {
 			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "reliable" })])
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ a: reliable }, { scrapeConfig: { maxAttempts: 1 } }));
+		const manager = await GrabitManager.create(createRegistryConfig({ a: reliable }, { scrapeConfig: { maxAttempts: 1 } }));
 
 		await manager.getStreams(GRAB_REQUEST);
 		await manager.getStreams(GRAB_REQUEST);
@@ -153,7 +153,7 @@ describe("ScrapePluginManager › health metrics", () => {
 			})
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ a: flaky }, { scrapeConfig: { maxAttempts: 1 } }));
+		const manager = await GrabitManager.create(createRegistryConfig({ a: flaky }, { scrapeConfig: { maxAttempts: 1 } }));
 
 		for (let i = 0; i < 4; i++) await manager.getStreams(GRAB_REQUEST);
 

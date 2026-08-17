@@ -5,6 +5,7 @@ import type { Response } from "../../services/fetcher.ts";
 export type CheerioLoadRequest = ScrapeRequester & {
 	extraHeaders?: { [key: string]: string };
 	followRedirects?: boolean;
+	useImpit?: boolean;
 };
 export type CheerioLoadResult = Readonly<{
 	$: cheerio.CheerioAPI;

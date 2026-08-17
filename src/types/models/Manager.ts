@@ -1,5 +1,7 @@
-import { ScrapeRequester } from "../input/Requester.ts";
+import { ScrapeRequester, RawScrapeRequester } from "../input/Requester.ts";
+import type { ProxyConfig } from "../input/Proxy.ts";
 import { MediaSource, SubtitleSource } from "../output/MediaSources.ts";
+import type { PuppeteerPoolConfig } from "./Puppeteer.ts";
 import { ProviderModule, ProviderModuleManifest } from "./Modules.ts";
 
 /**
@@ -12,6 +14,15 @@ export type ProvidersManifest = {
 	author?: string;
 	/** scheme → relative folder path (supports groups, e.g. "social/twitter": "providers/social/twitter") */
 	providers: Record<string, ProviderModuleManifest>;
+};
+
+export type ExternalProviderManifest = {
+	/** Library Name */
+	name: string;
+	/** Author */
+	author?: string;
+	/** scheme → relative folder path (supports groups, e.g. "social/twitter": "providers/social/twitter") */
+	providers: Record<string, Omit<ProviderModuleManifest, "scheme">>;
 };
 
 /**
@@ -110,8 +121,11 @@ export interface RegistrySource {
  */
 export interface LocalSource {
 	type: "local";
-	/** The manifest object — import or require it yourself */
-	manifest: ProvidersManifest;
+	/** The manifest object — import or require it yourself.
+	 *  Typed as `ExternalProviderManifest` because JSON manifests on disk carry
+	 *  scheme only as the map key, not inside each entry. The engine promotes it
+	 *  to `ProvidersManifest` (with `scheme` injected) via `toInternalManifest`. */
+	manifest: ExternalProviderManifest;
 	/**
 	 * Base directory prepended to every provider path in the manifest.
 	 * Defaults to `'./'`.  A trailing slash is added automatically if missing.
@@ -136,7 +150,7 @@ export interface LocalSource {
 export type ProviderSource = GithubSource | RegistrySource | LocalSource;
 
 /**
- * Configuration option for the `ScrapePluginManager`,
+ * Configuration option for the `GrabitManager`,
  * which manages provider modules and their interactions.
  */
 export type ProviderManagerConfig = {
@@ -146,6 +160,15 @@ export type ProviderManagerConfig = {
 	/** Whether to enable debug mode for the provider manager, which can include additional logging and error information to help with development and troubleshooting. */
 	debug?: boolean;
 
+	/**
+	 * Default proxy for provider requests, applied when a scrape request does not
+	 * supply its own `proxy`. Host-configured — providers never set this.
+	 * Either a proxy agent (`{ agent, auth? }`, `auth` sent as `Proxy-Authorization`;
+	 * URL-embedded `user:pass@` creds work via `agent`) or a URL resolver
+	 * (`{ resolver, headers? }`) that rewrites each request to a proxy endpoint.
+	 */
+	proxy?: ProxyConfig;
+
 	/** Throw on validation errors instead of warning (default: false) */
 	strict?: boolean;
 
@@ -154,7 +177,7 @@ export type ProviderManagerConfig = {
 
 	/**
 	 * Optional interval in minutes for auto-updating providers from remote sources.
-	 * When set, the ScrapePluginManager will periodically check for updates to the provider modules and refresh them without requiring a restart.
+	 * When set, the GrabitManager will periodically check for updates to the provider modules and refresh them without requiring a restart.
 	 *
 	 * This is particularly useful for (remote sources)
 	 *
@@ -243,6 +266,17 @@ export type ProviderManagerConfig = {
 		 */
 		successQuorum?: number;
 		/**
+		 * When `successQuorum` is reached, wait for providers that are already running
+		 * in active concurrency slots to finish before resolving.
+		 *
+		 * Queued providers that have not started yet are still cancelled immediately.
+		 * Keep this disabled when lowest possible latency matters more than collecting
+		 * extra results from providers that were already in flight.
+		 *
+		 * @default false
+		 */
+		waitForActiveProvidersAfterQuorum?: boolean;
+		/**
 		 * Error rate threshold (0–1) used to automatically disable a provider module.
 		 *
 		 * Calculated as: `errors / (errors + successes)`.
@@ -269,6 +303,14 @@ export type ProviderManagerConfig = {
 		 * @default 10
 		 */
 		minOperationsForEvaluation?: number;
+
+		/**
+		 * Node.js-only browser pooling configuration used by `ctx.puppeteer.launch(...)`.
+		 *
+		 * Browser instances are reused as warm processes while individual requests lease tabs/pages.
+		 * This reduces browser startup churn and caps the number of real browser processes running at once.
+		 */
+		puppeteer?: PuppeteerPoolConfig;
 	};
 
 	tmdbApiKeys: string[];
@@ -276,13 +318,13 @@ export type ProviderManagerConfig = {
 
 export interface IProviderManagerWorkers {
 	/** Grabs streams for a given requester */
-	getStreams(requester: ScrapeRequester): Promise<MediaSource[]>;
+	getStreams(requester: RawScrapeRequester): Promise<MediaSource[]>;
 	/** Grabs subtitles for a given requester */
-	getSubtitles(requester: ScrapeRequester): Promise<SubtitleSource[]>;
-	/** Grabs streams from a single provider identified by its scheme key */
-	getStreamsByScheme(scheme: string, requester: ScrapeRequester): Promise<MediaSource[]>;
-	/** Grabs subtitles from a single provider identified by its scheme key */
-	getSubtitlesByScheme(scheme: string, requester: ScrapeRequester): Promise<SubtitleSource[]>;
+	getSubtitles(requester: RawScrapeRequester): Promise<SubtitleSource[]>;
+	/** Grabs streams from a single provider identified by its scheme key, with TMDB enrichment */
+	getStreamsByScheme(scheme: string, requester: RawScrapeRequester): Promise<MediaSource[]>;
+	/** Grabs subtitles from a single provider identified by its scheme key, with TMDB enrichment */
+	getSubtitlesByScheme(scheme: string, requester: RawScrapeRequester): Promise<SubtitleSource[]>;
 }
 
 export type ResolvedProviderSource = Readonly<{

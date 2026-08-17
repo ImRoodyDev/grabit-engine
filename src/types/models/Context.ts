@@ -2,12 +2,13 @@ import type * as cheerio from "cheerio";
 import type { cheerioLoad, cheerioSortResults } from "../../core/cheerio.ts";
 import type { fetchStatus, providerFetch, providerFetchResponse, providerHandleResponse } from "../../core/xhr.ts";
 import type { puppeteerLoad } from "../../core/puppeteer.ts";
+import type { solveChallenge } from "../../core/solver.ts";
 import { DebugLogger } from "../../utils/logger.ts";
 
 /**
  * Provider context passed to provider handlers, containing media information and utilities
  * This will be passed to all provider index entry for scraping
- * Note: This context is created in the ScrapePluginManager and shared across all providers, allowing them to utilize the same utilities and maintain consistency in how media information is accessed and processed during scraping.
+ * Note: This context is created in the GrabitManager and shared across all providers, allowing them to utilize the same utilities and maintain consistency in how media information is accessed and processed during scraping.
  * The context includes:
  * - `cheerio`: The Cheerio library for parsing HTML, which providers can use to manipulate and extract data from HTML content when scraping.
  * - `xhr`: The XHR utility for making HTTP requests, which provides methods for fetching data from provider endpoints, handling responses, and implementing retry and timeout mechanisms.
@@ -100,12 +101,18 @@ export type ProviderContext = {
 	};
 
 	/**
+	 * Solve a Cloudflare / anti-bot interstitial. Uses the host-injected
+	 * solver when set (RN hidden WebView / FlareSolverr), else the Node puppeteer
+	 * pool. Reuse the returned cookies + userAgent on the next `xhr` hops.
+	 */
+	solveChallenge: typeof solveChallenge;
+	/**
 	 * Puppeteer library for headless browser automation
 	 * Optional: May not be available in all environments (e.g., client-side)
 	 */
 	puppeteer: {
-		/** Launches a new browser instance
-		 * @see {@link puppeteerLoad} for the implementation of this utility function, which handles launching a Puppeteer browser instance and navigating to a specified URL, with support for user agent and proxy configurations based on the requester's information.
+		/** Acquires a browser session from the shared manager pool and opens a page/tab.
+		 * @see {@link puppeteerLoad} for the implementation of this utility function, which handles launching or reusing a Puppeteer browser instance and navigating to a specified URL, with support for user agent and proxy configurations based on the requester's information.
 		 */
 		launch: typeof puppeteerLoad;
 	};

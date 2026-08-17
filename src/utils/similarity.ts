@@ -5,6 +5,9 @@ type MatchCriteria = {
 	title?: string;
 	year?: string;
 	date?: string;
+	/** Duration text
+	 * @example "1h 30m", "90m", "5400s"
+	 */
 	duration?: string;
 };
 
@@ -29,15 +32,18 @@ export function calculateMatchScore(criteria: MatchCriteria, media: Media): numb
 	if (media.type == "channel") return cosineSimilarity(media.channelName, criteria.title || "") * 100;
 
 	if (media.title && criteria.title) {
-		const distance = cosineSimilarity(media.title, criteria.title);
-		const distances = media.localizedTitles.map((t) => cosineSimilarity(t, criteria.title!) ?? 0);
+		// The query is tokenized once and reused, instead of once per localized title.
+		const queryVector = buildVector(criteria.title);
+		const distance = cosineSimilarityVectors(buildVector(media.title), queryVector);
+		const distances = media.localizedTitles.map((t) => cosineSimilarityVectors(buildVector(t), queryVector));
 		score += Math.max(distance, ...distances) * 100; // Scale cosine similarity to a score out of 100
 	}
 	if (media.releaseYear && criteria.year && media.releaseYear.toString() === criteria.year) {
 		score += 50;
 	}
 	if (media.duration && criteria.duration) {
-		const parsed = ParseDuration(criteria.duration) ?? 0 / 60000;
+		// ParseDuration returns milliseconds, media.duration is in minutes — convert before comparing.
+		const parsed = (ParseDuration(criteria.duration) ?? 0) / 60000;
 		const diff = Math.abs(media.duration - parsed);
 		score += 20 - Math.min(diff, 20); // Add up to 20 points based on how close the durations are
 	}
@@ -87,17 +93,29 @@ export function advanceLevenshteinDistance(itemName: string | null | undefined, 
  * @returns The Levenshtein distance between the two strings
  */
 export function levenshteinDistance(a: string, b: string): number {
-	const matrix: number[][] = [];
-	for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-	for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+	if (a === b) return 0;
+	if (a.length === 0) return b.length;
+	if (b.length === 0) return a.length;
 
-	for (let i = 1; i <= b.length; i++) {
-		for (let j = 1; j <= a.length; j++) {
-			const cost = b.charAt(i - 1) === a.charAt(j - 1) ? 0 : 1;
-			matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost);
+	// The distance is symmetric, so drive the row width with the shorter string
+	// to keep memory at O(min(n, m)).
+	const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+
+	// Two rolling rows instead of a full (n+1) x (m+1) matrix — same result, less allocation.
+	let previous = new Array<number>(short.length + 1);
+	let current = new Array<number>(short.length + 1);
+	for (let j = 0; j <= short.length; j++) previous[j] = j;
+
+	for (let i = 1; i <= long.length; i++) {
+		current[0] = i;
+		for (let j = 1; j <= short.length; j++) {
+			const cost = long.charAt(i - 1) === short.charAt(j - 1) ? 0 : 1;
+			current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost);
 		}
+		[previous, current] = [current, previous];
 	}
-	return matrix[b.length][a.length];
+
+	return previous[short.length];
 }
 
 /**
@@ -107,9 +125,13 @@ export function levenshteinDistance(a: string, b: string): number {
  *  @returns The cosine similarity score between the two strings (0 to 1, where 1 means identical)
  */
 export function cosineSimilarity(a: string, b: string): number {
-	const vecA = buildVector(a);
-	const vecB = buildVector(b);
+	return cosineSimilarityVectors(buildVector(a), buildVector(b));
+}
 
+/** Cosine similarity over pre-built word-frequency vectors.
+ *  Lets callers that compare one query against many strings tokenize the query once.
+ */
+function cosineSimilarityVectors(vecA: Map<string, number>, vecB: Map<string, number>): number {
 	const allWords = new Set([...vecA.keys(), ...vecB.keys()]);
 
 	let dotProduct = 0;

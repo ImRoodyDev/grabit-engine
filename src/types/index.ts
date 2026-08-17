@@ -4,11 +4,13 @@ export * from "./models/Cheerio.ts";
 export * from "./models/Puppeteer.ts";
 export * from "./models/Context.ts";
 export * from "./models/Xhr.ts";
-export { ProvidersManifest, GithubSource, RegistrySource, LocalSource, ProviderSource, ProviderManagerConfig } from "./models/Manager.ts";
+export * from "./models/Solver.ts";
+export { ProvidersManifest, ExternalProviderManifest, GithubSource, RegistrySource, LocalSource, ProviderSource, ProviderManagerConfig } from "./models/Manager.ts";
 export * from "./models/Modules.ts";
 
 // Input and Output Types
 export * from "./input/Media.ts";
+export * from "./input/Proxy.ts";
 export * from "./input/Requester.ts";
 export * from "./output/MediaSources.ts";
 

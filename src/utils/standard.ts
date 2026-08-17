@@ -1,17 +1,21 @@
-import { HttpError, ProcessError } from "../types/index.ts";
+// Import error classes from their own modules (not the ../types barrel): the
+// barrel re-exports these, which import back into this file, forming a require
+// cycle. isDevelopment now lives in ./env.ts and is re-exported below.
+import { HttpError } from "../types/HttpError.ts";
+import { ProcessError } from "../types/ProcessError.ts";
+import type { ExternalProviderManifest, ProvidersManifest } from "../types/models/Manager.ts";
 import { extractSetCookies } from "./extractor.ts";
 import { Logger } from "./logger.ts";
 import type { Response } from "../services/fetcher.ts";
 
 // Utility functions for the stream scraper package
-export const isDevelopment = () => typeof process !== "undefined" && process.env?.ENV !== "production";
+export { isDevelopment } from "./env.ts";
 export const isNode = () => typeof process !== "undefined" && process.versions != null && process.versions.node != null;
 export const isBrowser = () => typeof window !== "undefined" && typeof window.document !== "undefined";
 
 export function isCustomError(error: unknown): error is HttpError | ProcessError {
 	return error instanceof HttpError || error instanceof ProcessError;
 }
-export const sanitizeMessage = (value: string): string => value.replace(/\\"/g, '"').replace(/"/g, "").replace(/\s+/g, " ").trim();
 
 export const minutesToMilliseconds = (minutes: number): number => minutes * 60 * 1000;
 export const hoursToMilliseconds = (hours: number): number => hours * 60 * 60 * 1000;
@@ -28,18 +32,6 @@ export function commaSplitter(input: string | undefined): string[] {
 
 export async function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Calculate the row number based on the total number of retries.
- * @param attempts - The total number of retries .
- * @param retryScore - retries margin meaning how many retries is counted as 1.
- * @param maxAttempts - The maximum number of retries.
- * @returns - The row number.
- */
-export function retriesCount(attempts: number, maxAttempts: number, retryScore = 1) {
-	// Calculate the row number using the modulo operator
-	const rowNumber = ((attempts - 1) % (retryScore * maxAttempts)) + 1;
-	return Math.ceil(rowNumber / retryScore);
 }
 
 /** Run a function with retries and delay between attempts */
@@ -209,4 +201,19 @@ export function shuffleArray<T>(array: T[]): T[] {
 
 export function deduplicateArray<T>(array: T[]): T[] {
 	return Array.from(new Set(array));
+}
+
+/**
+ * Injects `scheme` from each map key into a raw external manifest,
+ * producing a fully-typed `ProvidersManifest` where every entry carries
+ * its own scheme identifier. This is the single authoritative conversion
+ * point used by all three provider source services (GitHub, registry, local).
+ */
+export function toInternalManifest(external: ExternalProviderManifest): ProvidersManifest {
+	return {
+		...external,
+		providers: Object.fromEntries(
+			Object.entries(external.providers).map(([scheme, p]) => [scheme, { ...p, scheme }])
+		)
+	};
 }

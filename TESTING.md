@@ -11,7 +11,7 @@ This is a **dev-only** tool — it is not exported from or bundled into the `gra
 The tester does the following in one command:
 
 1. **Resolves your provider** — finds `providers/<scheme>/index.js` (pre-bundled) or auto-bundles `index.ts` on the fly via esbuild into a temporary file.
-2. **Bootstraps the context** — loads the same `xhr`, `cheerio`, and `puppeteer` context that `ScrapePluginManager` uses internally.
+2. **Bootstraps the context** — loads the same `xhr`, `cheerio`, and `puppeteer` context that `GrabitManager` uses internally.
 3. **Enriches media via TMDB** — for movies/series, the tester calls `TMDB.createRequesterMedia()` to fill in any missing fields (title, year, duration, IMDB ID, localized titles, etc.). You only need to provide the minimum required fields. Fields you provide are **never overwritten**.
 4. **Runs the scrape** — calls `getStreams` and/or `getSubtitles` on your module with the enriched media, with a configurable timeout.
 5. **Reports results** — prints a formatted report of every source found, with a `PASS / EMPTY / FAIL` verdict at the end.
@@ -29,6 +29,30 @@ npm install --save-dev esbuild
 ```
 
 If you pre-bundle with `npx bundle-provider` first, esbuild is not required at test time.
+
+---
+
+## Environment (`.env`)
+
+The CLIs load `.env` and then `.env.local` from the directory you run them in. Real shell/CI
+variables always win over the files, and `.env.local` overrides `.env`. No dependency is needed:
+Node's built-in env-file loader is used, with a small parser fallback on older runtimes.
+
+| Variable | Purpose |
+|---|---|
+| `TMDB_API_KEYS` | Comma (or space) separated TMDB v3 keys. A pool; one is picked per request. |
+| `TMDB_API_KEY` | A single TMDB v3 key. Merged with `TMDB_API_KEYS` when both are set. |
+
+```bash
+# .env
+TMDB_API_KEYS=your_key_one,your_key_two
+```
+
+When neither is set the CLI falls back to its built-in public key pool, so existing setups keep
+working unchanged. `test-provider` prints which env files it loaded and how many keys came from
+the environment.
+
+> Add `.env` and `.env.*` to `.gitignore` so keys are never committed.
 
 ---
 
@@ -230,7 +254,7 @@ The tool prints a structured report broken into sections:
   getStreams:   ✔ yes
   getSubtitles: — no
 
-► Scraping  (mode: streams, timeout: 30000ms)
+► Scraping  (mode: streams, timeout: 90000ms)
 ────────────────────────────────────────────────────────────
 ℹ Running scrape...
 
@@ -289,7 +313,7 @@ The process exits with code `0` on PASS/EMPTY and `1` on FAIL.
 | `--user-agent <string>`             | —             | Custom user agent string                                                   |
 | `--src <path>`                      | `./providers` | Providers directory                                                        |
 | `--manifest-dir <path>`             | —             | Directory containing `manifest.json` (default: project root, then `--src`) |
-| `--timeout <ms>`                    | `30000`       | Scrape timeout in milliseconds                                             |
+| `--timeout <ms>`                    | `90000`       | Scrape timeout in milliseconds                                             |
 | `--raw`                             | `false`       | Also print raw JSON output                                                 |
 | `--no-bundle`                       | `false`       | Require pre-bundled `index.js`, skip auto-bundling                         |
 | `--help`, `-h`                      | —             | Show help                                                                  |

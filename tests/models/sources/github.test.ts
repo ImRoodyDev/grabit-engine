@@ -1,5 +1,5 @@
 /**
- * Integration-style tests that exercise `ScrapePluginManager.create()` when the
+ * Integration-style tests that exercise `GrabitManager.create()` when the
  * source is a **GitHub repository**.
  *
  * The GitHub network calls (`appFetch`) are fully mocked so no real HTTP traffic
@@ -10,7 +10,7 @@
  *  - error paths (invalid manifest, missing modules, network failures)
  */
 
-import { ScrapePluginManager } from "../../../src/controllers/manager";
+import { GrabitManager } from "../../../src/controllers/manager";
 import { CACHE } from "../../../src/services/cache";
 import { ProviderManagerConfig, ProviderModule, ProvidersManifest, MediaSource, SubtitleSource, ScrapeRequester } from "../../../src/types";
 import { Provider } from "../../../src/models/provider";
@@ -25,9 +25,9 @@ jest.mock("../../../src/services/tmdb", () => ({
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function resetManager(): void {
-	(ScrapePluginManager as any).instance = undefined;
-	(ScrapePluginManager as any).context = undefined;
-	(ScrapePluginManager as any).logger = undefined;
+	(GrabitManager as any).instance = undefined;
+	(GrabitManager as any).context = undefined;
+	(GrabitManager as any).logger = undefined;
 	CACHE.clear();
 }
 
@@ -217,7 +217,7 @@ jest.mock("../../../src/services/fetcher", () => {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe("ScrapePluginManager › GitHub source", () => {
+describe("GrabitManager › GitHub source", () => {
 	beforeEach(() => resetManager());
 
 	it("should initialise from a GitHub source with a custom moduleResolver", async () => {
@@ -235,8 +235,8 @@ describe("ScrapePluginManager › GitHub source", () => {
 			debug: false
 		};
 
-		const manager = await ScrapePluginManager.create(config);
-		expect(manager).toBeInstanceOf(ScrapePluginManager);
+		const manager = await GrabitManager.create(config);
+		expect(manager).toBeInstanceOf(GrabitManager);
 		// moduleResolver should have been called for each provider in the manifest
 		expect(moduleResolver).toHaveBeenCalledWith("example-provider", expect.any(String));
 	});
@@ -256,7 +256,7 @@ describe("ScrapePluginManager › GitHub source", () => {
 			debug: false
 		};
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		const streams = await manager.getStreams(MOVIE_REQUEST);
 		expect(streams.length).toBeGreaterThan(0);
 		expect(streams[0].fileName).toBe("inception.mp4");
@@ -276,8 +276,8 @@ describe("ScrapePluginManager › GitHub source", () => {
 			debug: false
 		};
 
-		const manager = await ScrapePluginManager.create(config);
-		expect(manager).toBeInstanceOf(ScrapePluginManager);
+		const manager = await GrabitManager.create(config);
+		expect(manager).toBeInstanceOf(GrabitManager);
 	});
 
 	it("should handle a provider whose module source cannot be fetched", async () => {
@@ -296,7 +296,7 @@ describe("ScrapePluginManager › GitHub source", () => {
 		};
 
 		// Should not throw — modules that fail to load are skipped
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		const streams = await manager.getStreams(MOVIE_REQUEST);
 		expect(streams).toEqual([]);
 	});
@@ -316,7 +316,7 @@ describe("ScrapePluginManager › GitHub source", () => {
 			debug: false
 		};
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		const streams = await manager.getStreamsByScheme("example-provider", MOVIE_REQUEST);
 		expect(streams.length).toBeGreaterThan(0);
 		expect(streams[0].scheme).toBe("example-provider");
@@ -337,7 +337,7 @@ describe("ScrapePluginManager › GitHub source", () => {
 			debug: false
 		};
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		await manager.getStreams(MOVIE_REQUEST);
 
 		const metrics = manager.getMetrics();
@@ -362,7 +362,7 @@ describe("ScrapePluginManager › GitHub source", () => {
 			debug: false
 		};
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		await manager.getStreams(MOVIE_REQUEST);
 
 		const report = manager.getMetricsReport();
@@ -372,7 +372,7 @@ describe("ScrapePluginManager › GitHub source", () => {
 	});
 });
 
-describe("ScrapePluginManager › GitHub source with subtitles", () => {
+describe("GrabitManager › GitHub source with subtitles", () => {
 	beforeEach(() => resetManager());
 
 	it("should initialise and return subtitles from a GitHub-sourced subtitle provider", async () => {
@@ -422,9 +422,272 @@ describe("ScrapePluginManager › GitHub source with subtitles", () => {
 			debug: false
 		};
 
-		const manager = await ScrapePluginManager.create(config);
+		const manager = await GrabitManager.create(config);
 		const subtitles = await manager.getSubtitles(MOVIE_REQUEST);
 		expect(subtitles.length).toBeGreaterThan(0);
 		expect(subtitles[0].language).toBe("en");
+	});
+});
+
+// ─── Tests: GitHub source with rootDir ────────────────────────────────────────
+
+describe("GrabitManager › GitHub source with rootDir", () => {
+	beforeEach(() => resetManager());
+
+	it("should fetch manifest and modules from a custom rootDir", async () => {
+		const { appFetch } = require("../../../src/services/fetcher");
+		const rootDirManifest: ProvidersManifest = {
+			name: "rootdir-providers",
+			author: "test-author",
+			providers: {
+				"test-provider": {
+					scheme: "test-provider",
+					name: "TestProvider",
+					version: "1.0.0",
+					active: true,
+					language: "en",
+					type: "media",
+					env: "universal",
+					supportedMediaTypes: ["movie", "serie"],
+					priority: 10,
+					dir: "providers"
+				} as any
+			}
+		};
+
+		(appFetch as jest.Mock).mockImplementation(async (url: string) => {
+			// Manifest must be fetched from dist/ rootDir
+			if (url.includes("/contents/dist/manifest.json")) {
+				return { ok: true, status: 200, text: async () => JSON.stringify(rootDirManifest), json: async () => rootDirManifest };
+			}
+			// Provider JS should be at dist/providers/test-provider/index.js
+			if (url.includes("/contents/dist/providers/test-provider/index.js")) {
+				return { ok: true, status: 200, text: async () => "module.exports = {}", json: async () => ({}) };
+			}
+			return { ok: false, status: 404, statusText: "Not Found", text: async () => "Not Found" };
+		});
+
+		const mockModule = createGithubModule();
+		const moduleResolver = jest.fn<Promise<ProviderModule>, [string, string]>().mockResolvedValue(mockModule);
+
+		const config: ProviderManagerConfig = {
+			source: {
+				type: "github",
+				url: "https://github.com/ImRoodyDev/grabit-library",
+				branch: "main",
+				rootDir: "dist",
+				moduleResolver
+			},
+			tmdbApiKeys: [],
+			debug: false
+		};
+
+		const manager = await GrabitManager.create(config);
+		expect(manager).toBeInstanceOf(GrabitManager);
+		expect(moduleResolver).toHaveBeenCalledWith("test-provider", expect.any(String));
+	});
+
+	it("should set modules to null when individual provider fetch returns 404", async () => {
+		const { appFetch } = require("../../../src/services/fetcher");
+		const multiManifest: ProvidersManifest = {
+			name: "multi-providers",
+			author: "test-author",
+			providers: {
+				"good-provider": {
+					scheme: "good-provider",
+					name: "GoodProvider",
+					version: "1.0.0",
+					active: true,
+					language: "en",
+					type: "media",
+					env: "universal",
+					supportedMediaTypes: ["movie"],
+					priority: 10,
+					dir: "providers"
+				} as any,
+				"missing-provider": {
+					scheme: "missing-provider",
+					name: "MissingProvider",
+					version: "1.0.0",
+					active: true,
+					language: "en",
+					type: "media",
+					env: "universal",
+					supportedMediaTypes: ["movie"],
+					priority: 20,
+					dir: "providers"
+				} as any
+			}
+		};
+
+		(appFetch as jest.Mock).mockImplementation(async (url: string) => {
+			if (url.includes("/contents/dist/manifest.json")) {
+				return { ok: true, status: 200, text: async () => JSON.stringify(multiManifest), json: async () => multiManifest };
+			}
+			// Only good-provider's index.js exists
+			if (url.includes("good-provider/index.js")) {
+				return { ok: true, status: 200, text: async () => "module.exports = {}", json: async () => ({}) };
+			}
+			// missing-provider returns 404
+			return { ok: false, status: 404, statusText: "Not Found", text: async () => "Not Found" };
+		});
+
+		const mockModule = createGithubModule();
+		const moduleResolver = jest.fn<Promise<ProviderModule>, [string, string]>().mockResolvedValue(mockModule);
+
+		const config: ProviderManagerConfig = {
+			source: {
+				type: "github",
+				url: "https://github.com/ImRoodyDev/grabit-library",
+				branch: "main",
+				rootDir: "dist",
+				moduleResolver
+			},
+			tmdbApiKeys: [],
+			debug: true
+		};
+
+		// Should not throw — modules that fail to load are skipped
+		const manager = await GrabitManager.create(config);
+		expect(manager).toBeInstanceOf(GrabitManager);
+		// Only good-provider should have been resolved
+		expect(moduleResolver).toHaveBeenCalledWith("good-provider", expect.any(String));
+		expect(moduleResolver).not.toHaveBeenCalledWith("missing-provider", expect.any(String));
+	});
+
+	it("should handle moduleResolver throwing without crashing other providers", async () => {
+		const { appFetch } = require("../../../src/services/fetcher");
+		const multiManifest: ProvidersManifest = {
+			name: "multi-providers",
+			author: "test-author",
+			providers: {
+				"failing-provider": {
+					scheme: "failing-provider",
+					name: "FailingProvider",
+					version: "1.0.0",
+					active: true,
+					language: "en",
+					type: "media",
+					env: "universal",
+					supportedMediaTypes: ["movie"],
+					priority: 5,
+					dir: "providers"
+				} as any,
+				"working-provider": {
+					scheme: "working-provider",
+					name: "WorkingProvider",
+					version: "1.0.0",
+					active: true,
+					language: "en",
+					type: "media",
+					env: "universal",
+					supportedMediaTypes: ["movie"],
+					priority: 10,
+					dir: "providers"
+				} as any
+			}
+		};
+
+		(appFetch as jest.Mock).mockImplementation(async (url: string) => {
+			if (url.includes("/contents/dist/manifest.json")) {
+				return { ok: true, status: 200, text: async () => JSON.stringify(multiManifest), json: async () => multiManifest };
+			}
+			if (url.includes("index.js")) {
+				return { ok: true, status: 200, text: async () => "module.exports = {}", json: async () => ({}) };
+			}
+			return { ok: false, status: 404, statusText: "Not Found", text: async () => "Not Found" };
+		});
+
+		const mockModule = createGithubModule();
+		const moduleResolver = jest.fn<Promise<ProviderModule>, [string, string]>().mockImplementation(async (scheme) => {
+			if (scheme === "failing-provider") {
+				throw new Error("Module resolver crashed for this provider");
+			}
+			return mockModule;
+		});
+
+		const config: ProviderManagerConfig = {
+			source: {
+				type: "github",
+				url: "https://github.com/ImRoodyDev/grabit-library",
+				branch: "main",
+				rootDir: "dist",
+				moduleResolver
+			},
+			tmdbApiKeys: [],
+			debug: false
+		};
+
+		// Should not throw — the failing moduleResolver is caught per-provider
+		const manager = await GrabitManager.create(config);
+		expect(manager).toBeInstanceOf(GrabitManager);
+	});
+
+	it("should handle all provider fetches failing gracefully", async () => {
+		const { appFetch } = require("../../../src/services/fetcher");
+
+		(appFetch as jest.Mock).mockImplementation(async (url: string) => {
+			// Only manifest succeeds, all provider files return 404
+			if (url.includes("/contents/dist/manifest.json")) {
+				return {
+					ok: true,
+					status: 200,
+					text: async () =>
+						JSON.stringify({
+							name: "all-fail-providers",
+							author: "test-author",
+							providers: {
+								ip: {
+									scheme: "ip",
+									name: "IP",
+									version: "1.0.0",
+									active: true,
+									language: "en",
+									type: "media",
+									env: "universal",
+									supportedMediaTypes: ["movie"],
+									dir: "providers"
+								},
+								autoembed: {
+									scheme: "autoembed",
+									name: "AutoEmbed",
+									version: "1.0.0",
+									active: true,
+									language: "en",
+									type: "media",
+									env: "universal",
+									supportedMediaTypes: ["movie"],
+									dir: "providers"
+								}
+							}
+						}),
+					json: async () => ({})
+				};
+			}
+			return { ok: false, status: 404, statusText: "Not Found", text: async () => "Not Found" };
+		});
+
+		const moduleResolver = jest.fn<Promise<ProviderModule>, [string, string]>();
+
+		const config: ProviderManagerConfig = {
+			source: {
+				type: "github",
+				url: "https://github.com/ImRoodyDev/grabit-library",
+				branch: "main",
+				rootDir: "dist",
+				moduleResolver
+			},
+			tmdbApiKeys: [],
+			debug: false
+		};
+
+		// Should initialise without throwing — all providers null but manager is valid
+		const manager = await GrabitManager.create(config);
+		expect(manager).toBeInstanceOf(GrabitManager);
+		// moduleResolver should never have been called because fetches all failed
+		expect(moduleResolver).not.toHaveBeenCalled();
+		// getStreams should return empty since no providers loaded
+		const streams = await manager.getStreams(MOVIE_REQUEST);
+		expect(streams).toEqual([]);
 	});
 });

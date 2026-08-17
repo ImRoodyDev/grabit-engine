@@ -53,7 +53,7 @@
  *   --user-agent <string>          Custom user agent string
  *   --src <path>                   Providers directory (default: ./providers)
  *   --manifest-dir <path>          Directory containing manifest.json (default: project root, then --src)
- *   --timeout <ms>                 Scrape timeout in ms (default: 30000)
+ *   --timeout <ms>                 Scrape timeout in ms (default: 90000)
  *   --raw                          Print raw JSON output alongside the formatted report
  *   --no-bundle                    Skip auto-bundling; requires a pre-bundled index.js
  *
@@ -62,12 +62,24 @@
  *   1. <src>/<scheme>/index.js   ← pre-bundled output from `npx bundle-provider`
  *   2. <src>/<scheme>/index.ts   ← TypeScript source (auto-bundled via esbuild if available)
  *
+ * ─── Environment (.env / .env.local in the project root) ───────────────────
+ *
+ *   TMDB_API_KEYS   Comma separated TMDB v3 keys (a pool; one is picked per request)
+ *   TMDB_API_KEY    Single TMDB v3 key (merged with TMDB_API_KEYS if both are set)
+ *
+ *   Real shell/CI variables always win over the files. When neither is set the
+ *   built-in public key pool is used, so existing setups keep working.
+ *
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { loadEnvFiles, envList } from "./load-env.js";
+
+// Load .env / .env.local from the project the CLI runs in (shell env still wins).
+const LOADED_ENV_FILES = loadEnvFiles();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -143,7 +155,7 @@ function parseArgs() {
 		userAgent: null,
 		src: null,
 		manifestDir: null,
-		timeout: 30000,
+		timeout: 90000,
 		raw: false,
 		noBundle: false
 	};
@@ -217,10 +229,14 @@ ${bold("OPTIONS")}
   --user-agent <string>            Custom user agent
   --src <path>                     Providers directory (default: ./providers)
   --manifest-dir <path>            Directory of manifest.json (default: project root, then --src)
-  --timeout <ms>                   Timeout in ms (default: 30000)
+	--timeout <ms>                   Timeout in ms (default: 90000)
   --raw                            Also print raw JSON output
   --no-bundle                      Require pre-bundled index.js, skip auto-bundling
   --help, -h                       Show this help
+
+${bold("ENVIRONMENT")} ${dim("(.env / .env.local in the project root; shell vars win)")}
+  TMDB_API_KEYS                    Comma separated TMDB v3 keys (pool)
+  TMDB_API_KEY                     Single TMDB v3 key
 
 ${bold("EXAMPLES")}
   npx test-provider --scheme vidsrc --type movie --tmdb 27205
@@ -453,6 +469,8 @@ async function loadProviderModule(scheme, srcDir, noBundle, manifestDir) {
 		success(`Bundled to temp file`);
 	} else {
 		info(`Loading pre-bundled provider: ${dim(path.relative(ROOT, entry.path))}`);
+		tmpFile = createTempCopy(entry.path, `${scheme.replace(/\//g, "_")}-bundled`);
+		modulePath = tmpFile;
 	}
 
 	let mod;
@@ -479,10 +497,10 @@ async function loadProviderModule(scheme, srcDir, noBundle, manifestDir) {
 
 /**
  * Load the provider context from the grabit-engine package dist.
- * This mirrors what ScrapePluginManager.createContext() does internally.
+ * This mirrors what GrabitManager.createContext() does internally.
  */
 async function loadContext(scheme) {
-	const distCore = path.join(PKG_ROOT, "dist", "src", "core");
+	const distCore = path.join(PKG_ROOT, "dist", "esm", "src", "core");
 
 	if (!fs.existsSync(distCore)) {
 		error(`Package dist not found at: ${distCore}`);
@@ -491,12 +509,14 @@ async function loadContext(scheme) {
 		process.exit(1);
 	}
 
-	const [xhrMod, cheerioMod, puppeteerMod, loggerMod] = await Promise.all([
+	const [xhrMod, cheerioMod, puppeteerMod, solverMod, loggerMod] = await Promise.all([
 		import(pathToFileURL(path.join(distCore, "xhr.js")).href),
 		import(pathToFileURL(path.join(distCore, "cheerio.js")).href),
 		import(pathToFileURL(path.join(distCore, "puppeteer.js")).href),
-		import(pathToFileURL(path.join(PKG_ROOT, "dist", "src", "utils", "logger.js")).href)
+		import(pathToFileURL(path.join(distCore, "solver.js")).href),
+		import(pathToFileURL(path.join(PKG_ROOT, "dist", "esm", "src", "utils", "logger.js")).href)
 	]);
+	if (typeof puppeteerMod.disableHeadlessMode === "function") puppeteerMod.disableHeadlessMode(true);
 
 	// Logger is always in debug mode for the test script
 	const { DebugLogger } = loggerMod;
@@ -508,6 +528,7 @@ async function loadContext(scheme) {
 		xhr: xhrMod.default,
 		cheerio: cheerioMod.default,
 		puppeteer: puppeteerMod.default,
+		solveChallenge: solverMod.solveChallenge,
 		log
 	};
 }
@@ -521,7 +542,8 @@ function formatMediaSource(source, index) {
 	lines.push(`      ${dim("Provider:")}    ${source.providerName ?? "—"}`);
 	lines.push(`      ${dim("Format:")}      ${source.format ?? "—"}`);
 	lines.push(`      ${dim("Language:")}    ${source.language ?? "—"}`);
-	lines.push(`      ${dim("CORS policy:")} ${source.xhr?.haveCorsPolicy ? `${c.yellow}yes${c.reset}` : `${c.green}no${c.reset}`}`);
+	const flags = Array.isArray(source.xhr?.flags) ? source.xhr.flags : [];
+	lines.push(`      ${dim("Flags:")}       ${flags.length ? `${c.yellow}${flags.join(", ")}${c.reset}` : `${c.green}none${c.reset}`}`);
 
 	if (source.xhr?.headers && Object.keys(source.xhr.headers).length > 0) {
 		lines.push(`      ${dim("Headers:")}     ${JSON.stringify(source.xhr.headers)}`);
@@ -608,6 +630,8 @@ async function main() {
 	console.log(`${c.bold}${c.magenta}└─────────────────────────────────────────────┘${c.reset}`);
 	console.log();
 
+	if (LOADED_ENV_FILES.length) info(`Loaded env file(s): ${LOADED_ENV_FILES.join(", ")}`);
+
 	// ─── Build media ─────────────────────────────────────────────────────
 	header("► Media");
 	rule();
@@ -651,11 +675,16 @@ async function main() {
 	let enrichedMedia = media;
 	if (media.type !== "channel") {
 		try {
-			const tmdbMod = await import(pathToFileURL(path.join(PKG_ROOT, "dist", "src", "services", "tmdb.js")).href);
+			const tmdbMod = await import(pathToFileURL(path.join(PKG_ROOT, "dist", "esm", "src", "services", "tmdb.js")).href);
 			const TMDB = tmdbMod.TMDB;
 
+			// Keys come from TMDB_API_KEYS (comma separated) or TMDB_API_KEY in .env,
+			// falling back to the built-in pool when neither is set.
+			const envKeys = [...envList("TMDB_API_KEYS"), ...envList("TMDB_API_KEY")];
+			if (envKeys.length) info(`Using ${envKeys.length} TMDB API key(s) from the environment`);
+
 			// Initialize TMDB with a pool of API keys
-			TMDB.init([
+			TMDB.init(envKeys.length ? envKeys : [
 				"10923b261ba94d897ac6b81148314a3f",
 				"b573d051ec65413c949e68169923f7ff",
 				"da40aaeca884d8c9a9a4c088917c474c",
@@ -723,7 +752,7 @@ async function main() {
 	rule();
 	info("Importing provider context from package dist...");
 	globalContext = await loadContext(opts.scheme);
-	success("Context ready  (xhr, cheerio, puppeteer, log)");
+	success("Context ready  (xhr, cheerio, puppeteer, solveChallenge, log)");
 
 	// ─── Load provider ────────────────────────────────────────────────────
 	header("► Loading provider");

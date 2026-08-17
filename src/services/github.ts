@@ -4,15 +4,21 @@ import {
 	isHttpError,
 	isProcessError,
 	ProcessError,
+	ExternalProviderManifest,
 	ProvidersManifest,
 	ProviderModule,
 	ProviderModuleManifest
 } from "../types/index.ts";
 import { ResolvedProviderSource } from "../types/models/Manager.ts";
 import { pathJoin } from "../utils/path.ts";
-import { isNode } from "../utils/standard.ts";
+import { isNode, toInternalManifest } from "../utils/standard.ts";
+import { Logger } from "../utils/logger.ts";
 import { validateProvidersManifest, validateProviderModules } from "../utils/validator.ts";
 import { appFetch } from "./fetcher.ts";
+import pLimit from "p-limit";
+
+/** How many provider bundles are downloaded at once during a cold start. */
+export const PROVIDER_FETCH_CONCURRENCY = 6;
 
 export interface GitHubRepoInfo {
 	owner: string;
@@ -24,6 +30,25 @@ export interface GitHubFetchOptions extends GitHubRepoInfo {
 	token?: string;
 	/** Normalized root directory prefix (no leading slash, with trailing slash, or empty string) */
 	rootDir: string;
+}
+
+function isProviderModuleShape(value: unknown): value is ProviderModule {
+	return typeof value === "object" && value !== null && "provider" in value && "meta" in value && "workers" in value;
+}
+
+function normalizeResolvedProviderModule(value: unknown): ProviderModule | null {
+	let current = value;
+
+	for (let depth = 0; depth < 4; depth++) {
+		if (isProviderModuleShape(current)) return current;
+		if (typeof current !== "object" || current === null || !("default" in current)) break;
+
+		const next = (current as { default?: unknown }).default;
+		if (next === undefined || next === current) break;
+		current = next;
+	}
+
+	return isProviderModuleShape(current) ? current : null;
 }
 
 export namespace GithubService {
@@ -132,9 +157,9 @@ export namespace GithubService {
 	/** Fetch the raw manifest.json from a GitHub repo. */
 	async function githubFetchManifest(opts: GitHubFetchOptions): Promise<ProvidersManifest> {
 		try {
-			const apiPath = `/repos/${opts.owner}/${opts.repo}/contents/${opts.rootDir}manifest.json?ref=${opts.branch}`;
-			const manifestText = await githubFetch<string>(apiPath, { token: opts.token, raw: true });
-			const validated = validateProvidersManifest(JSON.parse(manifestText) as ProvidersManifest);
+			const manifestText = await fetchFileFromGitHub(opts, "manifest.json");
+			// The raw JSON has scheme only as a map key, not inside each entry — parse as ExternalProviderManifest.
+			const validated = validateProvidersManifest(JSON.parse(manifestText) as ExternalProviderManifest);
 			if (!validated.valid) {
 				throw new ProcessError({
 					code: "PROVIDERS_MANIFEST_INVALID",
@@ -142,7 +167,8 @@ export namespace GithubService {
 					details: validated.errors
 				});
 			}
-			return validated.manifest;
+			// Promote to ProvidersManifest by injecting scheme into each entry.
+			return toInternalManifest(validated.manifest);
 		} catch (error) {
 			if (isHttpError(error) || isProcessError(error)) throw error;
 			throw new ProcessError({
@@ -153,14 +179,62 @@ export namespace GithubService {
 		}
 	}
 
-	/** Fetch a single raw file frodm a GitHub repo. */
+	/**
+	 * Fetch a file's contents over `raw.githubusercontent.com`.
+	 *
+	 * The REST API's `/contents` endpoint allows only 60 requests per hour per IP when
+	 * unauthenticated, and a provider library costs one request per provider plus one for
+	 * the manifest on every app start. A few reloads exhaust the quota and GitHub answers
+	 * 403 with an empty body — which surfaces as providers that mysteriously fail to load
+	 * while others succeed, depending on where in the list the quota ran out.
+	 *
+	 * The raw host serves identical bytes from a CDN and is not metered by that quota.
+	 */
+	async function fetchRawFile(opts: GitHubFetchOptions, filePath: string): Promise<string> {
+		const headers: Record<string, string> = { "User-Agent": "grabit-engine" };
+		// Private repos still need auth here; public ones ignore it.
+		if (opts.token) headers["Authorization"] = `Bearer ${opts.token}`;
+
+		const url = `https://raw.githubusercontent.com/${opts.owner}/${opts.repo}/${opts.branch}/${opts.rootDir}${filePath}`;
+		const res = await appFetch(url, { headers, clean: true });
+		if (!res.ok) {
+			const body = await res.text();
+			throw new HttpError({
+				code: "GITHUB_RAW_ERROR",
+				message: `GitHub raw request failed with status ${res.status}: ${res.statusText}`,
+				details: body,
+				statusCode: res.status,
+				expose: false
+			});
+		}
+		return res.text();
+	}
+
+	/**
+	 * Fetch a single raw file from a GitHub repo.
+	 *
+	 * Prefers the unmetered raw host and falls back to the REST API, which covers the cases
+	 * raw does not serve (some private-repo token setups, or a raw outage).
+	 */
 	async function fetchFileFromGitHub(opts: GitHubFetchOptions, filePath: string): Promise<string> {
-		const apiPath = `/repos/${opts.owner}/${opts.repo}/contents/${opts.rootDir}${filePath}?ref=${opts.branch}`;
-		return githubFetch<string>(apiPath, { token: opts.token, raw: true });
+		try {
+			return await fetchRawFile(opts, filePath);
+		} catch (error) {
+			Logger.debug(
+				`[GithubService] Raw fetch failed for "${filePath}", falling back to the REST API: ` +
+					`${error instanceof Error ? error.message : error}`
+			);
+			const apiPath = `/repos/${opts.owner}/${opts.repo}/contents/${opts.rootDir}${filePath}?ref=${opts.branch}`;
+			return githubFetch<string>(apiPath, { token: opts.token, raw: true });
+		}
 	}
 
 	/**
 	 * Fetch and resolve every provider listed in `providers`.
+	 *
+	 * Providers are fetched concurrently: each one is a full HTTPS round-trip, and doing
+	 * them one at a time made a cold start cost `providers × latency` before the manager
+	 * was usable. `modules` is keyed by distinct schemes, so concurrent writes are safe.
 	 *
 	 * @param opts             - GitHub repo + auth info
 	 * @param providers        - scheme → relative folder path (from manifest.json)
@@ -174,25 +248,53 @@ export namespace GithubService {
 		moduleResolver?: (scheme: string, sourceCode: string) => Promise<ProviderModule>
 	): Promise<Record<string, ProviderModule | null>> {
 		const modules: Record<string, ProviderModule | null> = {};
+		// Bounded so a large library stays polite to the raw.githubusercontent.com CDN.
+		const limit = pLimit({ concurrency: PROVIDER_FETCH_CONCURRENCY });
 
-		for (const [scheme, manifest] of Object.entries(providers)) {
-			// Try index.js first, fall back to index.ts
-			let sourceCode: string;
-			try {
-				sourceCode = await fetchFileFromGitHub(opts, `${pathJoin(manifest.dir, scheme)}/index.js`);
-			} catch (error) {
-				modules[scheme] = null;
-				continue; // Skip this provider but continue loading others
-			}
+		await Promise.all(
+			Object.entries(providers).map(([scheme, manifest]) =>
+				limit(async () => {
+					// Try index.js first, fall back to index.ts
+					let sourceCode: string;
+					const fetchPath = `${pathJoin(manifest.dir, scheme)}/index.js`;
+					const fullApiUrl = `https://raw.githubusercontent.com/${opts.owner}/${opts.repo}/${opts.branch}/${opts.rootDir}${fetchPath}`;
+					try {
+						sourceCode = await fetchFileFromGitHub(opts, fetchPath);
+					} catch (error) {
+						Logger.error(
+							`[GithubService] Failed to fetch source for provider "${scheme}":\n` +
+								`  URL: ${fullApiUrl}\n` +
+								`  rootDir: "${opts.rootDir || "(none)"}"\n` +
+								`  manifest.dir: "${manifest.dir ?? "(none)"}"\n` +
+								`  Error: ${error instanceof Error ? error.message : error}`
+						);
+						modules[scheme] = null;
+						return; // Skip this provider but continue loading others
+					}
 
-			if (moduleResolver) {
-				// User-provided resolver (for browsers / React Native)
-				modules[scheme] = await moduleResolver(scheme, sourceCode);
-			} else if (isNode()) {
-				// Default: Node.js temp-file resolver
-				modules[scheme] = await defaultNodeResolver(scheme, sourceCode);
-			}
-		}
+					try {
+						if (moduleResolver) {
+							// User-provided resolver (for browsers / React Native)
+							modules[scheme] = normalizeResolvedProviderModule(await moduleResolver(scheme, sourceCode));
+						} else if (isNode()) {
+							// Default: Node.js temp-file resolver
+							modules[scheme] = await defaultNodeResolver(scheme, sourceCode);
+						}
+
+						if (modules[scheme] === null) {
+							Logger.error(`[GithubService] Provider "${scheme}" resolved, but did not export a valid ProviderModule shape.`);
+						} else {
+							// Always ensure meta.scheme reflects the canonical map key regardless
+							// of what the provider bundle declares internally.
+							modules[scheme]!.meta.scheme = scheme;
+						}
+					} catch (error) {
+						Logger.error(`[GithubService] Failed to resolve module for provider "${scheme}": ${error instanceof Error ? error.message : error}`);
+						modules[scheme] = null;
+					}
+				})
+			)
+		);
 
 		return modules;
 	}
@@ -202,19 +304,29 @@ export namespace GithubService {
 	 * All Node.js APIs (fs, path, os, url) are lazy-imported so they
 	 * are never bundled in frontend / React Native builds.
 	 *
+	 * IMPORTANT: imports are wrapped in `new Function` so Metro's static
+	 * analyzer never sees them. A plain `await import("fs")` — even inside
+	 * an `isNode()` guard — is still added to Metro's module graph, and since
+	 * Node built-ins have no file path the Expo serializer crashes with
+	 * `The "to" argument must be of type string. Received undefined`.
+	 *
 	 * Throws a clear error when running outside Node.js.
 	 */
-	async function defaultNodeResolver(scheme: string, sourceCode: string): Promise<ProviderModule> {
+	async function defaultNodeResolver(scheme: string, sourceCode: string): Promise<ProviderModule | null> {
 		let fs: typeof import("fs");
 		let path: typeof import("path");
 		let os: typeof import("os");
 		let urlMod: typeof import("url");
 
+		// new Function hides the import() calls from Metro's static analyzer so
+		// Node built-in modules are never added to the bundle graph.
+		const _import = new Function("id", "return import(id)") as (id: string) => Promise<any>;
+
 		try {
-			fs = await import("fs");
-			path = await import("path");
-			os = await import("os");
-			urlMod = await import("url");
+			fs = await _import("fs");
+			path = await _import("path");
+			os = await _import("os");
+			urlMod = await _import("url");
 		} catch {
 			throw new ProcessError({
 				code: "NODE_ENV_REQUIRED",
@@ -223,11 +335,39 @@ export namespace GithubService {
 		}
 
 		const safeName = scheme.replace(/\//g, "_");
-		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `provider-${safeName}-`));
+		// Async I/O: these run once per provider during startup and used to block the event loop.
+		const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `provider-${safeName}-`));
 		const filePath = path.join(tmpDir, "index.js");
-		fs.writeFileSync(filePath, sourceCode, "utf-8");
+		await fs.promises.writeFile(filePath, sourceCode, "utf-8");
 
-		const mod = await import(urlMod.pathToFileURL(filePath).href);
-		return mod.default ?? mod;
+		try {
+			// _import is used here too — the href is runtime-computed so Metro
+			// couldn't resolve it anyway, but _import keeps the pattern consistent.
+			const mod = await _import(urlMod.pathToFileURL(filePath).href);
+			return normalizeResolvedProviderModule(mod);
+		} catch (err: unknown) {
+			// Detect "Cannot find package" errors — these almost always mean the
+			// provider bundle contains a direct import of an npm package that
+			// should instead be accessed through ProviderContext.
+			const msg = err instanceof Error ? err.message : String(err);
+			const pkgMatch = msg.match(/Cannot find package '([^']+)'/);
+			if (pkgMatch) {
+				throw new ProcessError({
+					code: "PROVIDER_MISSING_PACKAGE",
+					message:
+						`Failed to load provider "${scheme}": Cannot find package '${pkgMatch[1]}'. ` +
+						`Provider bundles run in an isolated temp directory with no node_modules. ` +
+						`If this is a runtime-provided library (cheerio, puppeteer, etc.), ` +
+						`the provider must use the ProviderContext (ctx) argument instead of importing it directly. ` +
+						`Re-bundle with "npx bundle-provider" to see which imports need fixing.`
+				});
+			}
+			throw err;
+		} finally {
+			// Node reads the file eagerly during import(), and the module now lives in the
+			// ESM registry — so the directory can go. Without this every provider left a
+			// temp directory behind on every process start, forever.
+			void fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+		}
 	}
 }

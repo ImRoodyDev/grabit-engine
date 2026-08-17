@@ -118,7 +118,7 @@ export class Provider {
 	 * @description Throws an error if the media type is not supported by the provider.
 	 * @returns A URL object representing the full URL to access the media resource on the provider's platform.
 	 */
-	public createResourceURL(requester: Omit<ScrapeRequester, "userAgent" | "proxyAgent">, localizedTextIndex?: number | null): URL {
+	public createResourceURL(requester: Omit<ScrapeRequester, "userAgent" | "proxy">, localizedTextIndex?: number | null): URL {
 		// Entry point
 		const entry = this.config.entries[requester.media.type] || this.config.entries[`search_${requester.media.type}`];
 
@@ -143,7 +143,7 @@ export class Provider {
 	 * @throws If the media type is not supported by the provider.
 	 * @returns Deduplicated URL array ordered by priority.
 	 */
-	public createResourceUrls(requester: Omit<ScrapeRequester, "userAgent" | "proxyAgent">, customURL?: URL): URL[] {
+	public createResourceUrls(requester: Omit<ScrapeRequester, "userAgent" | "proxy">, customURL?: URL): URL[] {
 		// Entry point
 		const entry = this.config.entries[requester.media.type] || this.config.entries[`search_${requester.media.type}`];
 
@@ -208,7 +208,7 @@ export class Provider {
 	}
 
 	/** Applies the provider's pattern to a given URL or path, replacing placeholders with media information from the requester */
-	public applyPatternURL(urlOrPath: string, requester: Omit<ScrapeRequester, "userAgent" | "proxyAgent">): URL {
+	public applyPatternURL(urlOrPath: string, requester: Omit<ScrapeRequester, "userAgent" | "proxy">): URL {
 		// Entry point
 		const entry = this.config.entries[requester.media.type] || this.config.entries[`search_${requester.media.type}`];
 

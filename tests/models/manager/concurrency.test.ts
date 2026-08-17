@@ -1,4 +1,4 @@
-import { ScrapePluginManager } from "../../../src/controllers/manager";
+import { GrabitManager } from "../../../src/controllers/manager";
 import { resetManager, GRAB_REQUEST, createMockModule, createRegistryConfig, mockMediaSource } from "./helpers";
 
 jest.mock("../../../src/services/tmdb", () => ({
@@ -12,7 +12,7 @@ afterEach(() => {
 	resetManager();
 });
 
-describe("ScrapePluginManager › successQuorum", () => {
+describe("GrabitManager › successQuorum", () => {
 	beforeEach(() => resetManager());
 
 	it("should return results as soon as the quorum is met", async () => {
@@ -39,7 +39,7 @@ describe("ScrapePluginManager › successQuorum", () => {
 			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "fast-2" })])
 		});
 
-		const manager = await ScrapePluginManager.create(
+		const manager = await GrabitManager.create(
 			createRegistryConfig({ a: fast1, b: fast2, c: slow }, { scrapeConfig: { successQuorum: 2, operationTimeout: 10_000 } })
 		);
 
@@ -61,10 +61,48 @@ describe("ScrapePluginManager › successQuorum", () => {
 			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "f2" })])
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ a: fast1, b: fast2 }, { scrapeConfig: { successQuorum: 2 } }));
+		const manager = await GrabitManager.create(createRegistryConfig({ a: fast1, b: fast2 }, { scrapeConfig: { successQuorum: 2 } }));
 
 		const results = await manager.getStreams(GRAB_REQUEST);
 		expect(results).toHaveLength(2);
+	});
+
+	it("should wait for already-running providers when waitForActiveProvidersAfterQuorum is enabled", async () => {
+		const slow = createMockModule({
+			name: "slow",
+			priority: 10,
+			getStreams: jest.fn().mockImplementation(
+				() =>
+					new Promise((resolve) => {
+						const t = setTimeout(() => resolve([mockMediaSource({ providerName: "slow" })]), 250);
+						if (typeof t === "object" && "unref" in t) t.unref();
+					})
+			)
+		});
+		const fast1 = createMockModule({
+			name: "fast-1",
+			priority: 0,
+			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "fast-1" })])
+		});
+		const fast2 = createMockModule({
+			name: "fast-2",
+			priority: 1,
+			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "fast-2" })])
+		});
+
+		const manager = await GrabitManager.create(
+			createRegistryConfig(
+				{ a: fast1, b: fast2, c: slow },
+				{ scrapeConfig: { successQuorum: 2, waitForActiveProvidersAfterQuorum: true, concurrentOperations: 3, operationTimeout: 1_000 } }
+			)
+		);
+
+		const start = Date.now();
+		const results = await manager.getStreams(GRAB_REQUEST);
+		const elapsed = Date.now() - start;
+
+		expect(results).toHaveLength(3);
+		expect(elapsed).toBeGreaterThanOrEqual(200);
 	});
 
 	it("should return partial results when quorum cannot be met due to failures", async () => {
@@ -77,9 +115,7 @@ describe("ScrapePluginManager › successQuorum", () => {
 			getStreams: jest.fn().mockRejectedValue(new Error("fail"))
 		});
 
-		const manager = await ScrapePluginManager.create(
-			createRegistryConfig({ a: good, b: bad }, { scrapeConfig: { successQuorum: 2, operationTimeout: 1_000 } })
-		);
+		const manager = await GrabitManager.create(createRegistryConfig({ a: good, b: bad }, { scrapeConfig: { successQuorum: 2, operationTimeout: 1_000 } }));
 
 		const results = await manager.getStreams(GRAB_REQUEST);
 		// Only 1 can succeed — returns what it collected
@@ -88,7 +124,7 @@ describe("ScrapePluginManager › successQuorum", () => {
 	});
 });
 
-describe("ScrapePluginManager › operationTimeout", () => {
+describe("GrabitManager › operationTimeout", () => {
 	beforeEach(() => resetManager());
 
 	it("should return partial results when the timeout elapses", async () => {
@@ -101,7 +137,7 @@ describe("ScrapePluginManager › operationTimeout", () => {
 			getStreams: jest.fn().mockImplementation(() => new Promise(() => {})) // never resolves
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ a: fast, b: hanging }, { scrapeConfig: { operationTimeout: 500 } }));
+		const manager = await GrabitManager.create(createRegistryConfig({ a: fast, b: hanging }, { scrapeConfig: { operationTimeout: 500 } }));
 
 		const start = Date.now();
 		const results = await manager.getStreams(GRAB_REQUEST);
@@ -122,7 +158,7 @@ describe("ScrapePluginManager › operationTimeout", () => {
 			getStreams: jest.fn().mockImplementation(() => new Promise(() => {}))
 		});
 
-		const manager = await ScrapePluginManager.create(createRegistryConfig({ a: hanging1, b: hanging2 }, { scrapeConfig: { operationTimeout: 300 } }));
+		const manager = await GrabitManager.create(createRegistryConfig({ a: hanging1, b: hanging2 }, { scrapeConfig: { operationTimeout: 300 } }));
 
 		const results = await manager.getStreams(GRAB_REQUEST);
 		expect(results).toEqual([]);
