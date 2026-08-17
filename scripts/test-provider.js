@@ -493,10 +493,11 @@ async function loadContext(scheme) {
 		process.exit(1);
 	}
 
-	const [xhrMod, cheerioMod, puppeteerMod, loggerMod] = await Promise.all([
+	const [xhrMod, cheerioMod, puppeteerMod, solverMod, loggerMod] = await Promise.all([
 		import(pathToFileURL(path.join(distCore, "xhr.js")).href),
 		import(pathToFileURL(path.join(distCore, "cheerio.js")).href),
 		import(pathToFileURL(path.join(distCore, "puppeteer.js")).href),
+		import(pathToFileURL(path.join(distCore, "solver.js")).href),
 		import(pathToFileURL(path.join(PKG_ROOT, "dist", "esm", "src", "utils", "logger.js")).href)
 	]);
 	if (typeof puppeteerMod.disableHeadlessMode === "function") puppeteerMod.disableHeadlessMode(true);
@@ -511,6 +512,7 @@ async function loadContext(scheme) {
 		xhr: xhrMod.default,
 		cheerio: cheerioMod.default,
 		puppeteer: puppeteerMod.default,
+		solveChallenge: solverMod.solveChallenge,
 		log
 	};
 }
@@ -727,7 +729,7 @@ async function main() {
 	rule();
 	info("Importing provider context from package dist...");
 	globalContext = await loadContext(opts.scheme);
-	success("Context ready  (xhr, cheerio, puppeteer, log)");
+	success("Context ready  (xhr, cheerio, puppeteer, solveChallenge, log)");
 
 	// ─── Load provider ────────────────────────────────────────────────────
 	header("► Loading provider");
