@@ -36,28 +36,41 @@ async function solveWithPuppeteer(url: URL, requester: ScrapeRequester, options:
 		requester,
 		browsingOptions: { ignoreError: true, loadCriteria: "networkidle2", ...(options.headers ? { extraHeaders: options.headers } : {}) }
 	});
+	const page = session.page;
+	// page.cookies() is deprecated. Use browser.cookies() and scope to the host, so a pooled/warm
+	// browser that visited other sites does not leak their cookies into the result.
+	const host = url.hostname.toLowerCase();
+	const readCookies = async () =>
+		(await session.browser.cookies()).filter((c) => {
+			const domain = c.domain.replace(/^\./, "").toLowerCase();
+			return host === domain || host.endsWith(`.${domain}`);
+		});
+
 	try {
-		const page = session.page;
 		// Wait for the named challenge cookie (e.g. cf_clearance) if requested.
 		if (options.waitForCookie) {
 			const deadline = Date.now() + (options.timeoutMs ?? 20000);
 			while (Date.now() < deadline) {
-				const cookies = await page.cookies();
-				if (cookies.some((c: { name: string }) => c.name === options.waitForCookie)) break;
+				if ((await readCookies()).some((c) => c.name === options.waitForCookie)) break;
 				await new Promise((r) => setTimeout(r, 500));
 			}
 		}
 		const html = await page.content();
-		const cookies = await page.cookies();
+		const cookies = await readCookies();
 		const cookieMap: Record<string, string> = {};
 		for (const c of cookies) cookieMap[c.name] = c.value;
-		let userAgent = "";
-		try {
-			userAgent = await page.evaluate(() => (globalThis as any).navigator?.userAgent ?? "");
-		} catch {
-			/* best-effort */
+		// puppeteerLoad applies requester.userAgent when set, so that is the UA the browser used.
+		// Only when the requester omits one does the browser pick its own, which we read from the page.
+		// The host must reuse this exact UA later, since Cloudflare binds cf_clearance to the UA (and IP).
+		let userAgent = requester.userAgent ?? "";
+		if (!userAgent) {
+			try {
+				userAgent = await page.evaluate(() => (globalThis as any).navigator?.userAgent ?? "");
+			} catch {
+				/* best-effort */
+			}
 		}
-		return { html, cookies: cookies.map((c: { name: string; value: string }) => `${c.name}=${c.value}`).join("; "), cookieMap, userAgent };
+		return { html, cookies: cookies.map((c) => `${c.name}=${c.value}`).join("; "), cookieMap, userAgent };
 	} finally {
 		await session.page.close().catch(() => null);
 	}

@@ -119,6 +119,30 @@ Full details in [IMPROVEMENTS.md](IMPROVEMENTS.md).
 
 ---
 
+## 🧭 Browser access: `ctx.puppeteer` vs `ctx.solveChallenge`
+
+Two ways to drive a real browser from a provider, with different reach:
+
+- **`ctx.puppeteer`** hands you the live Puppeteer `page` (and `browser`) leased from the shared
+  pool. Use it only when you truly need the page object: listening to network requests to capture
+  the media URL, or injecting / interacting directly in the browser. It runs on **Node only**, so a
+  provider that uses it must set **`env: "node"`** in its `manifest.json` entry. Off Node
+  (browser / React Native) the engine only runs `env: "universal"` providers, so a node-only
+  provider is correctly skipped there instead of failing at runtime.
+- **`ctx.solveChallenge(url, requester, opts)`** returns just
+  `{ html, cookies, cookieMap, userAgent }`. Use it when you only need the rendered HTML (for
+  example to pass a Cloudflare interstitial and read the DOM). It works everywhere: on Node it
+  drives Puppeteer, and a host can inject an RN hidden WebView or FlareSolverr solver via
+  `setChallengeSolver`, so these providers stay `env: "universal"`.
+
+Rule of thumb: need the page or a network listener, use `ctx.puppeteer` with `env: "node"`. Only
+need the solved HTML, use `ctx.solveChallenge` with `env: "universal"`.
+
+When reusing a solved result, forward the returned `userAgent` (and cookies) on later requests:
+Cloudflare binds `cf_clearance` to the exact User-Agent and IP that earned it.
+
+---
+
 ## 📜 License
 
 ISC — see [LICENSE](LICENSE). For educational / personal use.
