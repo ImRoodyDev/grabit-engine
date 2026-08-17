@@ -524,7 +524,8 @@ function formatMediaSource(source, index) {
 	lines.push(`      ${dim("Provider:")}    ${source.providerName ?? "—"}`);
 	lines.push(`      ${dim("Format:")}      ${source.format ?? "—"}`);
 	lines.push(`      ${dim("Language:")}    ${source.language ?? "—"}`);
-	lines.push(`      ${dim("CORS policy:")} ${source.xhr?.haveCorsPolicy ? `${c.yellow}yes${c.reset}` : `${c.green}no${c.reset}`}`);
+	const flags = Array.isArray(source.xhr?.flags) ? source.xhr.flags : [];
+	lines.push(`      ${dim("Flags:")}       ${flags.length ? `${c.yellow}${flags.join(", ")}${c.reset}` : `${c.green}none${c.reset}`}`);
 
 	if (source.xhr?.headers && Object.keys(source.xhr.headers).length > 0) {
 		lines.push(`      ${dim("Headers:")}     ${JSON.stringify(source.xhr.headers)}`);

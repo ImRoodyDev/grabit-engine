@@ -48,6 +48,9 @@ declare module "impit" {
 		 * - Useful for making requests that require custom headers or no headers at all, without being overridden by default values
 		 */
 		clean?: boolean;
+		/** Redirect mode passed to the underlying fetch. Use "manual" to read the
+		 *  Location header without following it (HEAD-unwrap pattern). */
+		redirect?: RequestRedirect;
 		/** Proxy agent to use for the request */
 		agent?: HttpProxyAgent<any> | HttpsProxyAgent<any> | SocksProxyAgent;
 		/** Custom cache key for caching responses */

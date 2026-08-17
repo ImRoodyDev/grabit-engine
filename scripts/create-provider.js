@@ -236,7 +236,7 @@ export async function getStreams(requester: ScrapeRequester, ctx: ProviderContex
 			format: "mp4",
 			language: "en",
 			playlist: src,
-			xhr: { haveCorsPolicy: false, headers: {} }
+			xhr: { flags: [], headers: {} }
 		}
 	];
 }
@@ -267,7 +267,7 @@ export async function getSubtitles(requester: ScrapeRequester, ctx: ProviderCont
 		language: sub.language,
 		languageName: sub.languageName,
 		url: sub.url,
-		xhr: { haveCorsPolicy: false, headers: {} }
+		xhr: { flags: [], headers: {} }
 	}));
 }
 `;
