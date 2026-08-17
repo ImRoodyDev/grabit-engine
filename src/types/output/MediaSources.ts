@@ -38,6 +38,7 @@ export interface SourceProvider<T = string> {
  * The `MediaStreamResult` type combines the media stream and its online providers, while the `SourceProvider` interface defines the structure for both media and subtitle providers.
  */
 export type MediaSource = SourceProvider<"m3u8" | "dash" | "mp4" | "webm" | "mkv" | "flv" | "avi" | "mov"> & {
+	/** Resolved playlist */
 	playlist:
 		| {
 				bandwidth: number;
@@ -46,6 +47,8 @@ export type MediaSource = SourceProvider<"m3u8" | "dash" | "mp4" | "webm" | "mkv
 				source: string;
 		  }[]
 		| string;
+	/** When set, the host resolves the playlist on play via the provider's resolveLazy. */
+	lazy?: LazySource;
 };
 
 /**
@@ -68,9 +71,7 @@ export type SubtitleSource = SourceProvider<"srt" | "vtt"> & {
  */
 export type LazySource = { id: string; label?: string };
 
-export type InternalMediaSource = Omit<MediaSource, "providerName" | "scheme" | "format"> &
-	Partial<Pick<MediaSource, "format">> & {
-		/** When set, the host defers resolving `playlist` to the provider on play. */
-		lazy?: LazySource;
-	};
+// Inherits the optional `playlist` and `lazy` from MediaSource: a lazy source omits
+// `playlist` and sets `lazy`, a normal source sets `playlist` and omits `lazy`.
+export type InternalMediaSource = Omit<MediaSource, "providerName" | "scheme" | "format"> & Partial<Pick<MediaSource, "format">>;
 export type InternalSubtitleSource = Omit<SubtitleSource, "providerName" | "scheme">;

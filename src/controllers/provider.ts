@@ -153,7 +153,9 @@ function createModuleWorkers(provider: Provider, manifest: ProviderModuleManifes
 async function validateMediaSources(sources: MediaSource[], requester: ScrapeRequester, context: ProviderContext): Promise<MediaSource[]> {
 	const results = await Promise.all(
 		sources.map(async (source) => {
-			const url = typeof source.playlist === "string" ? source.playlist : source.playlist[0]?.source;
+			// Lazy sources have no URL yet; the host resolves them on play, so keep them unvalidated.
+			if (source.lazy) return source;
+			const url = typeof source.playlist === "string" ? source.playlist : source.playlist?.[0]?.source;
 			if (!url) return null;
 			const { ok } = await context.xhr.status(url, { attachUserAgent: true, headers: source.xhr.headers }, requester);
 			return ok ? source : null;

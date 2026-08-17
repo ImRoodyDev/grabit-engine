@@ -75,6 +75,7 @@
 	"scripts": {
 		"watch": "tsc -w",
 		"test": "jest",
+		"lint": "tsc --noEmit",
 		"build": "tsc -p tsconfig.json && node scripts/build-cjs.js && node scripts/postbuild.js",
 		"build:local": "npm run build && npm pack",
 		"prepublishOnly": "npm run build",
