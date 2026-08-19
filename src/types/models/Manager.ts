@@ -161,6 +161,22 @@ export type ProviderManagerConfig = {
 	debug?: boolean;
 
 	/**
+	 * Return lazy source handles instead of fully-resolved streams.
+	 *
+	 * When `true`, `getStreams` / `getStreamsProgressive` dispatch to each provider's
+	 * `getLazyStreams` worker (falling back to `getStreams` when a provider does not
+	 * implement it). The returned sources carry a `lazy: { id }` handle and no `playlist`;
+	 * the host resolves the playable URL on play via {@link GrabitManager.resolveLazySource}.
+	 *
+	 * Use this when the engine runs behind a server: list servers cheaply, resolve only the
+	 * one the user picks. The dedicated {@link GrabitManager.getLazyStreams} method forces
+	 * lazy mode regardless of this flag.
+	 *
+	 * @default false
+	 */
+	lazy?: boolean;
+
+	/**
 	 * Default proxy for provider requests, applied when a scrape request does not
 	 * supply its own `proxy`. Host-configured — providers never set this.
 	 * Either a proxy agent (`{ agent, auth? }`, `auth` sent as `Proxy-Authorization`;
@@ -317,8 +333,11 @@ export type ProviderManagerConfig = {
 };
 
 export interface IProviderManagerWorkers {
-	/** Grabs streams for a given requester */
+	/** Grabs streams for a given requester (lazy handles when `config.lazy` is enabled) */
 	getStreams(requester: RawScrapeRequester): Promise<MediaSource[]>;
+	/** Grabs lazy stream handles for a given requester, regardless of `config.lazy`.
+	 *  Each handle is resolved on play via {@link IProviderManagerWorkers} `resolveLazySource`. */
+	getLazyStreams(requester: RawScrapeRequester): Promise<MediaSource[]>;
 	/** Grabs subtitles for a given requester */
 	getSubtitles(requester: RawScrapeRequester): Promise<SubtitleSource[]>;
 	/** Grabs streams from a single provider identified by its scheme key, with TMDB enrichment */

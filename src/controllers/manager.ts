@@ -385,7 +385,7 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 			// Filter based on the media type
 			const typeCompatible =
 				(type === "subtitle" && module.workers.getSubtitles !== undefined) || //..
-				(type === "media" && module.workers.getStreams !== undefined);
+				(type === "media" && (module.workers.getStreams !== undefined || module.workers.getLazyStreams !== undefined));
 
 			// Revalidate the requester validated media if there are things missing that are required by the provider,
 			//  for example if the requester media is missing ids
@@ -421,8 +421,29 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 		return matchingProviders;
 	}
 
+	/** Pick the media worker for a module honoring lazy mode.
+	 *  In lazy mode: `getLazyStreams` when present, else `getStreams`.
+	 *  In normal mode: `getStreams` (a lazy-only provider produces nothing and is skipped). */
+	private mediaWorker(module: ProviderModule, lazy: boolean): ((req: ScrapeRequester, ctx: ProviderContext) => Promise<MediaSource[]>) | null {
+		if (lazy) return module.workers.getLazyStreams ?? module.workers.getStreams ?? null;
+		return module.workers.getStreams ?? null;
+	}
+
 	public async getStreams(rawRequester: RawScrapeRequester): Promise<MediaSource[]> {
-		return this.scrapeProviders(rawRequester, "media", (mod, req, ctx) => mod.workers.getStreams!(req, ctx));
+		const lazy = this.config.lazy === true;
+		return this.scrapeProviders(rawRequester, "media", (mod, req, ctx) => {
+			const worker = this.mediaWorker(mod, lazy);
+			return worker ? worker(req, ctx) : Promise.resolve([]);
+		});
+	}
+
+	/** Force lazy listing regardless of `config.lazy`. Dispatches to `getLazyStreams`
+	 *  (falling back to `getStreams`); each returned handle is resolved on play via {@link resolveLazySource}. */
+	public async getLazyStreams(rawRequester: RawScrapeRequester): Promise<MediaSource[]> {
+		return this.scrapeProviders(rawRequester, "media", (mod, req, ctx) => {
+			const worker = this.mediaWorker(mod, true);
+			return worker ? worker(req, ctx) : Promise.resolve([]);
+		});
 	}
 
 	public async getSubtitles(rawRequester: RawScrapeRequester): Promise<SubtitleSource[]> {
@@ -430,7 +451,16 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 	}
 
 	public async getStreamsProgressive(rawRequester: RawScrapeRequester, onPartialResult: (sources: MediaSource[]) => void): Promise<MediaSource[]> {
-		return this.scrapeProviders(rawRequester, "media", (mod, req, ctx) => mod.workers.getStreams!(req, ctx), { ignoreQuorum: true, onPartialResult });
+		const lazy = this.config.lazy === true;
+		return this.scrapeProviders(
+			rawRequester,
+			"media",
+			(mod, req, ctx) => {
+				const worker = this.mediaWorker(mod, lazy);
+				return worker ? worker(req, ctx) : Promise.resolve([]);
+			},
+			{ ignoreQuorum: true, onPartialResult }
+		);
 	}
 
 	public async getSubtitlesProgressive(rawRequester: RawScrapeRequester, onPartialResult: (sources: SubtitleSource[]) => void): Promise<SubtitleSource[]> {
@@ -443,8 +473,10 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 			GrabitManager.logger.warn(`No active provider found for scheme "${scheme}"`);
 			return [];
 		}
-		if (!module.workers.getStreams) {
-			GrabitManager.logger.warn(`Provider "${module.meta.name}" (scheme "${scheme}") does not implement getStreams`);
+		const lazy = this.config.lazy === true;
+		const worker = this.mediaWorker(module, lazy);
+		if (!worker) {
+			GrabitManager.logger.warn(`Provider "${module.meta.name}" (scheme "${scheme}") does not implement ${lazy ? "getLazyStreams/getStreams" : "getStreams"}`);
 			return [];
 		}
 
@@ -456,9 +488,7 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 			proxy: rawRequester.proxy ?? this.config.proxy
 		};
 
-		const results = await this.createOperation([module], (mod, _limiter, signal) =>
-			mod.workers.getStreams!({ ...requester, signal }, GrabitManager.context)
-		);
+		const results = await this.createOperation([module], (_mod, _limiter, signal) => worker({ ...requester, signal }, GrabitManager.context));
 		return sortByTargetLanguage(results, requester.targetLanguageISO);
 	}
 

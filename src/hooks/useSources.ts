@@ -3,7 +3,8 @@ import { useManager } from "./useManager.ts";
 import { useScraper } from "./useScraper.ts";
 import type { UseSourcesConfig, UseSourcesReturn } from "../types/hooks/useSources.ts";
 import type { ProviderModuleManifest } from "../types/models/Modules.ts";
-import type { ScrapeRequester } from "../types/input/Requester.ts";
+import type { RawScrapeRequester, ScrapeRequester } from "../types/input/Requester.ts";
+import type { MediaSource } from "../types/output/MediaSources.ts";
 
 export type { UseSourcesConfig, UseSourcesReturn, ScrapeType } from "../types/hooks/useSources.ts";
 
@@ -54,6 +55,19 @@ export function useSources(config: UseSourcesConfig): UseSourcesReturn {
 		[manager]
 	);
 
+	/**
+	 * Resolve a lazy source on play. `scheme` + `id` come from the lazy handle
+	 * (`source.scheme`, `source.lazy.id`); the requester re-supplies the media context.
+	 * Returns the fully-shaped source, or null when it can't be resolved / manager not ready.
+	 */
+	const resolveLazySource = useCallback(
+		async (scheme: string, id: string, requester: RawScrapeRequester): Promise<MediaSource | null> => {
+			if (!manager) return null;
+			return manager.resolveLazySource(scheme, id, requester);
+		},
+		[manager]
+	);
+
 	return {
 		mediaSources,
 		subtitleSources,
@@ -65,7 +79,8 @@ export function useSources(config: UseSourcesConfig): UseSourcesReturn {
 		scrapeProvider,
 		stopContinuousScraping,
 		clearSources,
-		getAvailableProviders
+		getAvailableProviders,
+		resolveLazySource
 	};
 }
 

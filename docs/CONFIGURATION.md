@@ -29,6 +29,12 @@
 <td>Throw errors for bad plugins instead of just skipping them.</td>
 </tr>
 <tr>
+<td><code>lazy</code></td>
+<td><code>boolean</code></td>
+<td><code>false</code></td>
+<td>Return lazy source handles (no <code>playlist</code>) from <code>getStreams</code> by dispatching to each provider's <code>getLazyStreams</code> (falls back to <code>getStreams</code>). Resolve a handle on play with <code>resolveLazySource</code>. See <a href="./LAZY_SOURCES.md">Lazy sources</a>.</td>
+</tr>
+<tr>
 <td><code>autoUpdateIntervalMinutes</code></td>
 <td><code>number</code></td>
 <td><code>15</code></td>

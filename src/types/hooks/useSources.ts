@@ -98,4 +98,12 @@ export interface UseSourcesReturn {
 	 * or `stopContinuousScraping()`.
 	 */
 	scrapeProvider: (requester: RawScrapeRequester, providerScheme: string) => Promise<void>;
+
+	/**
+	 * Resolve a lazy source on play. `scheme` + `id` come from a lazy handle
+	 * (`source.scheme` + `source.lazy.id`); the requester re-supplies the media
+	 * context so the manager can rebuild the request. Returns the fully-shaped
+	 * source, or `null` when it can't be resolved or the manager isn't ready.
+	 */
+	resolveLazySource: (scheme: string, id: string, requester: RawScrapeRequester) => Promise<MediaSource | null>;
 }

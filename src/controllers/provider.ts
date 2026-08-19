@@ -8,6 +8,7 @@ import {
 	ProviderModule,
 	ProviderModuleManifest,
 	MediaSource,
+	InternalMediaSource,
 	SubtitleSource,
 	ScrapeRequester,
 	ProviderContext,
@@ -16,7 +17,7 @@ import {
 import { validateManifestConfiguration } from "../utils/validator.ts";
 import { sortByTargetLanguage } from "../utils/internal.ts";
 
-function describeProviderWorkerError(workerName: "getStreams" | "getSubtitles", manifest: ProviderModuleManifest, error: unknown) {
+function describeProviderWorkerError(workerName: "getStreams" | "getLazyStreams" | "getSubtitles", manifest: ProviderModuleManifest, error: unknown) {
 	const base = `Provider ${manifest.name} ${workerName} failed`;
 
 	if (isProcessError(error)) {
@@ -52,6 +53,23 @@ export function defineProviderModule(_this: Provider, manifest: ProviderModuleMa
 	};
 }
 
+/** Augment a provider-returned media source (resolved OR lazy) with the engine-managed
+ *  fields: format, display fileName, User-Agent header, scheme and providerName. */
+function augmentMediaSource(source: InternalMediaSource, manifest: ProviderModuleManifest, provider: Provider, userAgent?: string): MediaSource {
+	const format = source.format ?? ((typeof source.playlist === "string" ? (extractExtension(source.playlist) ?? "m3u8") : "m3u8") as MediaSource["format"]);
+	return {
+		...source,
+		xhr: {
+			...source.xhr,
+			headers: normalizeHeaders({ ...source.xhr?.headers, "User-Agent": userAgent })
+		},
+		format,
+		fileName: `[${manifest.name}][${format.toUpperCase()}] - ${ISO6391.getName(source.language)} - ${source.fileName ?? "Source"} `,
+		providerName: manifest.name,
+		scheme: provider.config.scheme
+	} as MediaSource;
+}
+
 function createModuleWorkers(provider: Provider, manifest: ProviderModuleManifest, workers: InternalIProviderModuleWorkers): IProviderModuleWorkers {
 	validateManifestConfiguration(provider, manifest);
 	const shouldValidate = provider.config.xhr?.validateSources === true;
@@ -62,24 +80,7 @@ function createModuleWorkers(provider: Provider, manifest: ProviderModuleManifes
 			? async (requester, context) => {
 					try {
 						const sources = await workers.getStreams!(requester, context);
-						const withMeta = sources.map((source) => {
-							const format =
-								source.format ?? ((typeof source.playlist === "string" ? (extractExtension(source.playlist) ?? "m3u8") : "m3u8") as MediaSource["format"]);
-							return {
-								...source,
-								xhr: {
-									...source.xhr,
-									headers: normalizeHeaders({
-										...source.xhr?.headers,
-										"User-Agent": requester.userAgent
-									})
-								},
-								format: format,
-								fileName: `[${manifest.name}][${format.toUpperCase()}] - ${ISO6391.getName(source.language)} - ${source.fileName ?? "Source"} `,
-								providerName: manifest.name,
-								scheme: provider.config.scheme
-							};
-						});
+						const withMeta = sources.map((source) => augmentMediaSource(source, manifest, provider, requester.userAgent));
 						const sorted = sortByTargetLanguage(withMeta, requester.targetLanguageISO);
 						if (!shouldValidate) return sorted;
 						return validateMediaSources(sorted, requester, context);
@@ -88,6 +89,24 @@ function createModuleWorkers(provider: Provider, manifest: ProviderModuleManifes
 						context.log.error(logEntry.summary);
 						if (logEntry.details) {
 							context.log.debug(`Provider ${manifest.name} getStreams details`, logEntry.details);
+						}
+						throw error;
+					}
+				}
+			: undefined,
+		// Lazy listing: augment each handle like getStreams but never validate — lazy sources
+		// have no URL yet (resolved on play via resolveLazy).
+		getLazyStreams: workers.getLazyStreams
+			? async (requester, context) => {
+					try {
+						const sources = await workers.getLazyStreams!(requester, context);
+						const withMeta = sources.map((source) => augmentMediaSource(source, manifest, provider, requester.userAgent));
+						return sortByTargetLanguage(withMeta, requester.targetLanguageISO);
+					} catch (error) {
+						const logEntry = describeProviderWorkerError("getLazyStreams", manifest, error);
+						context.log.error(logEntry.summary);
+						if (logEntry.details) {
+							context.log.debug(`Provider ${manifest.name} getLazyStreams details`, logEntry.details);
 						}
 						throw error;
 					}
@@ -128,19 +147,7 @@ function createModuleWorkers(provider: Provider, manifest: ProviderModuleManifes
 			? async (id, context, requester) => {
 					const source = await workers.resolveLazy!(id, context, requester);
 					if (!source) return null;
-					const format =
-						source.format ?? ((typeof source.playlist === "string" ? (extractExtension(source.playlist) ?? "m3u8") : "m3u8") as MediaSource["format"]);
-					return {
-						...source,
-						xhr: {
-							...source.xhr,
-							headers: normalizeHeaders({ ...source.xhr?.headers, "User-Agent": requester.userAgent })
-						},
-						format,
-						fileName: `[${manifest.name}][${format.toUpperCase()}] - ${source.fileName ?? "Source"} `,
-						providerName: manifest.name,
-						scheme: provider.config.scheme
-					} as MediaSource;
+					return augmentMediaSource(source, manifest, provider, requester.userAgent);
 				}
 			: undefined
 	};

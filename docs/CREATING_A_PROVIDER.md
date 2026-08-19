@@ -162,6 +162,11 @@ export default defineProviderModule(
 );
 ```
 
+The worker object accepts any combination of `getStreams`, `getSubtitles`, `getLazyStreams`, and
+`resolveLazy`. `getLazyStreams` (cheap lazy listing) and `resolveLazy` (resolve one handle on play)
+power [Lazy sources](./LAZY_SOURCES.md); keep them in a separate `lazy.ts` and pass them here
+alongside `getStreams`.
+
 ### Multi-Language Providers
 
 The `language` field on both `ProviderConfig` and `ProviderModuleManifest` accepts a **single string** or an **array of strings**. This lets you declare that a provider serves content in multiple languages.

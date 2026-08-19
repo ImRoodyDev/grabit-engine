@@ -112,8 +112,9 @@ Recent additions — each is opt-in and documented in its own guide:
   Node; inject a hidden RN WebView or FlareSolverr via `setChallengeSolver`).
 - **[Source flags](docs/SOURCE_FLAGS.md)** — `xhr.flags: SourceFlag[]` (replaces
   `haveCorsPolicy`) so a source states exactly how the host must play it.
-- **[Lazy sources](docs/LAZY_SOURCES.md)** — return `{ lazy: { id } }` and a `resolveLazy`
-  worker to defer final-URL resolution to play time.
+- **[Lazy sources](docs/LAZY_SOURCES.md)** — a `getLazyStreams` worker returns `{ lazy: { id } }`
+  handles and `resolveLazy` resolves them at play time; flip on with `lazy: true` in the manager
+  config.
 
 Full details in [IMPROVEMENTS.md](IMPROVEMENTS.md).
 

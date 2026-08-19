@@ -69,6 +69,10 @@ export interface IProviderModuleWorkers {
 	/** Grabs subtitles for a given requester */
 	getSubtitles?(requester: ScrapeRequester, context: ProviderContext): Promise<SubtitleSource[]>;
 
+	/** Grabs lazy stream handles (no playlist) for a given requester; each is resolved on play via {@link resolveLazy}.
+	 *  Used when the manager runs in lazy mode. Falls back to {@link getStreams} when not implemented. */
+	getLazyStreams?(requester: ScrapeRequester, context: ProviderContext): Promise<MediaSource[]>;
+
 	/** Resolves a lazy source's final URL on play; `id` comes from `source.lazy.id`. */
 	resolveLazy?(id: string, context: ProviderContext, requester: ScrapeRequester): Promise<MediaSource | null>;
 
@@ -81,6 +85,10 @@ export type InternalIProviderModuleWorkers = {
 	getStreams?(requester: ScrapeRequester, context: ProviderContext): Promise<InternalMediaSource[]>;
 	/** Grabs subtitles for a given requester */
 	getSubtitles?(requester: ScrapeRequester, context: ProviderContext): Promise<InternalSubtitleSource[]>;
+
+	/** Grabs lazy stream handles (no playlist) for a given requester; each is resolved on play via {@link resolveLazy}.
+	 *  Used when the manager runs in lazy mode. Falls back to {@link getStreams} when not implemented. */
+	getLazyStreams?(requester: ScrapeRequester, context: ProviderContext): Promise<InternalMediaSource[]>;
 
 	/** Resolves a lazy source's final URL on play; `id` comes from `source.lazy.id`. */
 	resolveLazy?(id: string, context: ProviderContext, requester: ScrapeRequester): Promise<InternalMediaSource | null>;
