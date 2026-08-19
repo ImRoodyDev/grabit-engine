@@ -97,6 +97,21 @@ server 302 to a CDN cannot carry `xhr.headers`, and routing every stream through
 hop for every viewer. `REFERER_LOCKED`/`IP_LOCKED` sources keep their headers because the client
 proxies them, not the origin server.
 
+## Testing a lazy provider
+
+Use the `test-provider` CLI's lazy mode — it lists the handles, then resolves one through
+`resolveLazy`, mirroring the manager's lazy path:
+
+```bash
+npx test-provider --scheme <scheme> --type movie --tmdb 27205 --mode lazy
+npx test-provider --scheme <scheme> --type movie --tmdb 27205 --mode lazy --resolve-all
+```
+
+The **Lazy Handles** section shows each handle (with its `Lazy id`, no playlist yet); the
+**Resolved On Play** section shows the handle resolved to a real `Playlist`. `--lazy-index <n>`
+picks which handle to resolve; `--resolve-all` resolves every one (a good check that each id is
+self-contained). See [Testing providers](../TESTING.md#test-a-lazy-provider---mode-lazy).
+
 ## Security: the id is attacker-controllable
 
 `lazy.id` round-trips through the client. If `resolveLazy` builds a fetch URL from it, a tampered id

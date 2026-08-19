@@ -101,6 +101,30 @@ npx test-provider --scheme my-provider --mode subtitles --type movie --tmdb 2720
 npx test-provider --scheme my-provider --mode both --type movie --tmdb 27205
 ```
 
+### Test a lazy provider (`--mode lazy`)
+
+For providers that implement lazy resolution (a `getLazyStreams` lister + a `resolveLazy` resolver,
+see [Lazy sources](docs/LAZY_SOURCES.md)), `--mode lazy` runs the whole flow: it **lists the lazy
+handles** (via `getLazyStreams`, falling back to `getStreams`), then **resolves one on play** via
+`resolveLazy` — exactly what the manager does when created with `lazy: true`.
+
+```bash
+# List handles, then resolve the first one to a real playlist
+npx test-provider --scheme vixsrc --type movie --tmdb 27205 --mode lazy
+
+# Resolve a specific handle by its list index (0-based)
+npx test-provider --scheme vixsrc --type movie --tmdb 27205 --mode lazy --lazy-index 1
+
+# Resolve every listed handle (verifies each id is self-contained)
+npx test-provider --scheme vixsrc --type movie --tmdb 27205 --mode lazy --resolve-all
+```
+
+The output has two sections: **Lazy Handles** (each handle shows its `Lazy id`, with no playlist
+yet) and **Resolved On Play** (the handle resolved through `resolveLazy`, now with a real
+`Playlist` and `Flags`). A run PASSes when at least one handle is listed; check the resolved
+section to confirm the id round-trips to a playable URL. Providers without `resolveLazy` list
+handles but skip resolution (with a warning).
+
 ### Load media from a JSON file
 
 Instead of passing individual flags, you can supply a pre-built `Media` object from a file:
@@ -308,7 +332,9 @@ The process exits with code `0` on PASS/EMPTY and `1` on FAIL.
 | `--channel-id <string>`             | —             | Channel ID (channel only)                                                  |
 | `--channel-name <string>`           | —             | Channel name (channel only)                                                |
 | `--media-file <path>`               | —             | Load media from a JSON file (overrides per-field flags)                    |
-| `--mode <streams\|subtitles\|both>` | `streams`     | What to test                                                               |
+| `--mode <streams\|subtitles\|both\|lazy>` | `streams` | What to test (`lazy` lists handles then resolves one on play)             |
+| `--lazy-index <n>`                  | `0`           | In `--mode lazy`, which listed handle to resolve                           |
+| `--resolve-all`                     | `false`       | In `--mode lazy`, resolve every listed handle                              |
 | `--lang <iso>`                      | `en`          | Target language ISO code                                                   |
 | `--user-agent <string>`             | —             | Custom user agent string                                                   |
 | `--src <path>`                      | `./providers` | Providers directory                                                        |
@@ -325,5 +351,6 @@ The process exits with code `0` on PASS/EMPTY and `1` on FAIL.
 - **Always test before pushing to GitHub.** Bundle your provider first (`npx bundle-provider <scheme>`), then run the tester against the bundled output to catch any runtime import issues.
 - **Use `--raw`** when debugging to inspect the full JSON response from your provider.
 - **Use `--mode both`** if your provider implements both `getStreams` and `getSubtitles` to validate both in one run.
+- **Use `--mode lazy`** to verify a lazy provider end to end — that `getLazyStreams` lists handles and each `lazy.id` resolves through `resolveLazy` to a real playlist. Add `--resolve-all` to check every handle.
 - **Use `--media-file`** to keep a reusable set of test cases alongside your provider source.
 - **Test with real IDs** — use accurate TMDB/IMDB IDs to increase the chance of the provider finding a valid result.

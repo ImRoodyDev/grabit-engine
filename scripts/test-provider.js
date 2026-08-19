@@ -151,6 +151,8 @@ function parseArgs() {
 		channelName: null,
 		mediaFile: null,
 		mode: "streams",
+		lazyIndex: 0,
+		resolveAll: false,
 		lang: null,
 		userAgent: null,
 		src: null,
@@ -184,6 +186,8 @@ function parseArgs() {
 		else if (arg === "--channel-name") opts.channelName = take();
 		else if (arg === "--media-file") opts.mediaFile = take();
 		else if (arg === "--mode") opts.mode = take();
+		else if (arg === "--lazy-index") opts.lazyIndex = Number(take());
+		else if (arg === "--resolve-all") opts.resolveAll = true;
 		else if (arg === "--lang") opts.lang = take();
 		else if (arg === "--user-agent") opts.userAgent = take();
 		else if (arg === "--src") opts.src = take();
@@ -224,7 +228,9 @@ ${bold("MEDIA FLAGS")} ${dim("(skip if using --media-file)")}
 
 ${bold("OPTIONS")}
   --scheme <scheme>                Provider scheme (required)
-  --mode <streams|subtitles|both>  What to test (default: streams)
+  --mode <streams|subtitles|both|lazy>  What to test (default: streams)
+  --lazy-index <n>                 In lazy mode, which handle to resolve (default: 0)
+  --resolve-all                    In lazy mode, resolve every listed handle
   --lang <iso>                     Target language ISO (default: en)
   --user-agent <string>            Custom user agent
   --src <path>                     Providers directory (default: ./providers)
@@ -245,6 +251,11 @@ ${bold("EXAMPLES")}
     --season 1 --episode 1
 
   npx test-provider --scheme vidsrc --media-file ./test-media.json --mode both
+
+  ${dim("# lazy provider: list handles, then resolve one on play")}
+  npx test-provider --scheme vixsrc --type movie --tmdb 27205 --mode lazy
+  npx test-provider --scheme vixsrc --type movie --tmdb 27205 --mode lazy --lazy-index 1
+  npx test-provider --scheme vixsrc --type movie --tmdb 27205 --mode lazy --resolve-all
 `);
 }
 
@@ -549,7 +560,12 @@ function formatMediaSource(source, index) {
 		lines.push(`      ${dim("Headers:")}     ${JSON.stringify(source.xhr.headers)}`);
 	}
 
-	if (typeof source.playlist === "string") {
+	// Lazy handle: no playlist yet, resolved on play via resolveLazy.
+	if (source.lazy) {
+		lines.push(`      ${dim("Lazy:")}        ${c.yellow}handle (unresolved)${c.reset}`);
+		lines.push(`      ${dim("Lazy id:")}     ${source.lazy.id}`);
+		if (source.lazy.label) lines.push(`      ${dim("Lazy label:")}  ${source.lazy.label}`);
+	} else if (typeof source.playlist === "string") {
 		lines.push(`      ${dim("Playlist:")}    ${source.playlist}`);
 	} else if (Array.isArray(source.playlist) && source.playlist.length > 0) {
 		lines.push(`      ${dim("Qualities:")}`);
@@ -580,8 +596,8 @@ function formatSubtitleSource(source, index) {
 
 // ─── Run ─────────────────────────────────────────────────────────────────────
 
-async function runScrape(providerModule, requester, mode, timeout) {
-	const results = { streams: null, subtitles: null, errors: {} };
+async function runScrape(providerModule, requester, mode, timeout, opts) {
+	const results = { streams: null, subtitles: null, lazy: null, errors: {} };
 
 	const withTimeout = (promise, label) =>
 		Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(`Timed out after ${timeout}ms`)), timeout))]).catch((err) => {
@@ -597,7 +613,43 @@ async function runScrape(providerModule, requester, mode, timeout) {
 		results.subtitles = await withTimeout(providerModule.workers.getSubtitles(requester, globalContext), "subtitles");
 	}
 
+	if (mode === "lazy") {
+		results.lazy = await runLazy(providerModule, requester, withTimeout, opts, results.errors);
+	}
+
 	return results;
+}
+
+/**
+ * Lazy flow: list handles (getLazyStreams, falling back to getStreams), then resolve
+ * one (or all) of them via resolveLazy — mirroring the manager's lazy path.
+ */
+async function runLazy(providerModule, requester, withTimeout, opts, errors) {
+	const workers = providerModule.workers ?? {};
+	const lister = workers.getLazyStreams ?? workers.getStreams;
+	const listerName = workers.getLazyStreams ? "getLazyStreams" : "getStreams";
+
+	if (typeof lister !== "function") {
+		errors.lazy = "provider implements neither getLazyStreams nor getStreams";
+		return { listerName, handles: [], resolved: [] };
+	}
+
+	// 1. List handles.
+	const listed = (await withTimeout(lister(requester, globalContext), "lazy")) ?? [];
+	const handles = listed.filter((s) => s && s.lazy && s.lazy.id);
+
+	// 2. Resolve selected handle(s) via resolveLazy.
+	const resolved = [];
+	if (typeof workers.resolveLazy === "function" && handles.length > 0) {
+		const targets = opts.resolveAll ? handles.map((_, i) => i) : [Math.min(Math.max(opts.lazyIndex, 0), handles.length - 1)];
+		for (const idx of targets) {
+			const handle = handles[idx];
+			const source = await withTimeout(workers.resolveLazy(handle.lazy.id, globalContext, requester), `resolveLazy[${idx}]`);
+			resolved.push({ index: idx, handle, source: source ?? null });
+		}
+	}
+
+	return { listerName, handles, resolved };
 }
 
 // ─── Global context (set after loading) ─────────────────────────────────────
@@ -615,7 +667,7 @@ async function main() {
 		process.exit(1);
 	}
 
-	const validModes = ["streams", "subtitles", "both"];
+	const validModes = ["streams", "subtitles", "both", "lazy"];
 	if (!validModes.includes(opts.mode)) {
 		error(`--mode must be one of: ${validModes.join(", ")}`);
 		process.exit(1);
@@ -761,6 +813,8 @@ async function main() {
 
 	const hasStreams = typeof providerModule.workers?.getStreams === "function";
 	const hasSubtitles = typeof providerModule.workers?.getSubtitles === "function";
+	const hasLazyStreams = typeof providerModule.workers?.getLazyStreams === "function";
+	const hasResolveLazy = typeof providerModule.workers?.resolveLazy === "function";
 
 	console.log(`  ${dim("scheme:")}      ${bold(providerModule.provider?.config?.scheme ?? opts.scheme)}`);
 	console.log(`  ${dim("name:")}        ${providerModule.meta?.name ?? dim("(unnamed)")}`);
@@ -771,8 +825,10 @@ async function main() {
 			: providerModule.meta.language
 		: dim("(unknown)");
 	console.log(`  ${dim("language:")}    ${langDisplay}`);
-	console.log(`  ${dim("getStreams:")}   ${hasStreams ? `${c.green}✔ yes${c.reset}` : `${c.dim}— no${c.reset}`}`);
-	console.log(`  ${dim("getSubtitles:")} ${hasSubtitles ? `${c.green}✔ yes${c.reset}` : `${c.dim}— no${c.reset}`}`);
+	console.log(`  ${dim("getStreams:")}     ${hasStreams ? `${c.green}✔ yes${c.reset}` : `${c.dim}— no${c.reset}`}`);
+	console.log(`  ${dim("getLazyStreams:")} ${hasLazyStreams ? `${c.green}✔ yes${c.reset}` : `${c.dim}— no${c.reset}`}`);
+	console.log(`  ${dim("resolveLazy:")}    ${hasResolveLazy ? `${c.green}✔ yes${c.reset}` : `${c.dim}— no${c.reset}`}`);
+	console.log(`  ${dim("getSubtitles:")}   ${hasSubtitles ? `${c.green}✔ yes${c.reset}` : `${c.dim}— no${c.reset}`}`);
 
 	// Warn if mode requires capabilities the provider doesn't have
 	if (opts.mode === "streams" && !hasStreams) {
@@ -783,6 +839,15 @@ async function main() {
 		warn(`Provider does not implement getSubtitles — nothing to test in subtitles mode.`);
 		process.exit(0);
 	}
+	if (opts.mode === "lazy") {
+		if (!hasLazyStreams && !hasStreams) {
+			warn(`Provider implements neither getLazyStreams nor getStreams — nothing to list in lazy mode.`);
+			process.exit(0);
+		}
+		if (!hasResolveLazy) {
+			warn(`Provider does not implement resolveLazy — handles will be listed but not resolved.`);
+		}
+	}
 
 	// ─── Run scrape ───────────────────────────────────────────────────────
 	header(`► Scraping  ${dim(`(mode: ${opts.mode}, timeout: ${opts.timeout}ms)`)}`);
@@ -790,7 +855,7 @@ async function main() {
 	info("Running scrape...");
 	const startTime = Date.now();
 
-	const results = await runScrape(providerModule, requester, opts.mode, opts.timeout);
+	const results = await runScrape(providerModule, requester, opts.mode, opts.timeout, opts);
 	const elapsed = Date.now() - startTime;
 
 	// ─── Show results ─────────────────────────────────────────────────────
@@ -829,6 +894,40 @@ async function main() {
 		}
 	}
 
+	// ── Lazy
+	if (results.lazy !== null) {
+		const { listerName, handles, resolved } = results.lazy;
+		header(`► Lazy Handles  ${dim(`(${handles.length} listed via ${listerName})`)}`);
+		rule();
+		if (results.errors.lazy) {
+			error(`lazy listing failed: ${results.errors.lazy}`);
+		} else if (handles.length === 0) {
+			warn(`${listerName} returned no lazy handles.`);
+		} else {
+			for (let i = 0; i < handles.length; i++) {
+				console.log(formatMediaSource(handles[i], i));
+				console.log();
+			}
+		}
+
+		if (resolved.length > 0) {
+			header(`► Resolved On Play  ${dim(`(${resolved.length} resolved via resolveLazy)`)}`);
+			rule();
+			for (const entry of resolved) {
+				const errKey = `resolveLazy[${entry.index}]`;
+				console.log(`  ${dim(`handle #${entry.index + 1}:`)} ${entry.handle.fileName ?? entry.handle.lazy?.id ?? ""}`);
+				if (results.errors[errKey]) {
+					error(`resolveLazy failed: ${results.errors[errKey]}`);
+				} else if (!entry.source) {
+					warn("resolveLazy returned null (could not resolve).");
+				} else {
+					console.log(formatMediaSource(entry.source, entry.index));
+				}
+				console.log();
+			}
+		}
+	}
+
 	// ── Raw JSON
 	if (opts.raw) {
 		header("► Raw JSON");
@@ -842,14 +941,21 @@ async function main() {
 
 	const streamCount = results.streams?.length ?? 0;
 	const subtitleCount = results.subtitles?.length ?? 0;
+	const lazyHandleCount = results.lazy?.handles?.length ?? 0;
+	const lazyResolvedCount = results.lazy?.resolved?.filter((r) => r.source).length ?? 0;
 	const hasAnyError = Object.keys(results.errors).length > 0;
-	const hasAnyResult = streamCount > 0 || subtitleCount > 0;
+	// In lazy mode a run is meaningful when it listed at least one handle.
+	const hasAnyResult = streamCount > 0 || subtitleCount > 0 || lazyHandleCount > 0;
 
 	console.log(`  ${dim("Time elapsed:")}  ${elapsed}ms`);
 	if (results.streams !== null)
 		console.log(`  ${dim("Stream sources:")}  ${streamCount > 0 ? `${c.green}${streamCount}${c.reset}` : `${c.yellow}0${c.reset}`}`);
 	if (results.subtitles !== null)
 		console.log(`  ${dim("Subtitle sources:")} ${subtitleCount > 0 ? `${c.green}${subtitleCount}${c.reset}` : `${c.yellow}0${c.reset}`}`);
+	if (results.lazy !== null) {
+		console.log(`  ${dim("Lazy handles:")}    ${lazyHandleCount > 0 ? `${c.green}${lazyHandleCount}${c.reset}` : `${c.yellow}0${c.reset}`}`);
+		console.log(`  ${dim("Lazy resolved:")}   ${lazyResolvedCount > 0 ? `${c.green}${lazyResolvedCount}${c.reset}` : `${c.yellow}0${c.reset}`}`);
+	}
 
 	if (hasAnyError) {
 		for (const [label, msg] of Object.entries(results.errors)) {
