@@ -177,6 +177,17 @@ export type ProviderManagerConfig = {
 	lazy?: boolean;
 
 	/**
+	 * In lazy mode, allow a provider's eager `getStreams` worker to be used when it does
+	 * not implement `getLazyStreams`. On by default, so enabling `lazy` never silently
+	 * drops eager-only providers. Set to `false` for strict lazy mode, where only
+	 * providers that implement `getLazyStreams` participate (eager-only ones are skipped,
+	 * not run to an empty result).
+	 *
+	 * @default true
+	 */
+	lazyFallbackToStreams?: boolean;
+
+	/**
 	 * Default proxy for provider requests, applied when a scrape request does not
 	 * supply its own `proxy`. Host-configured — providers never set this.
 	 * Either a proxy agent (`{ agent, auth? }`, `auth` sent as `Proxy-Authorization`;

@@ -17,19 +17,19 @@ A provider exposes lazy support through two workers:
 ```typescript
 // getLazyStreams — cheap: list servers without resolving them. No playlist yet.
 export async function getLazyStreams(requester, ctx) {
-  return servers.map((s) => ({
-    fileName: s.name,
-    language: "en",
-    xhr: { flags: [], headers: {} },
-    lazy: { id: s.key } // opaque, self-contained id passed back to resolveLazy
-  }));
+	return servers.map((s) => ({
+		fileName: s.name,
+		language: "en",
+		xhr: { flags: [], headers: {} },
+		lazy: { id: s.key } // opaque, self-contained id passed back to resolveLazy
+	}));
 }
 
 // resolveLazy — heavy: called on play with the id above
 export async function resolveLazy(id, ctx, requester) {
-  const url = await resolveServer(id, ctx, requester);
-  if (!url) return null;
-  return { fileName: id, playlist: url, language: "en", xhr: { flags: ["CORS_BLOCKED"], headers: {} } };
+	const url = await resolveServer(id, ctx, requester);
+	if (!url) return null;
+	return { fileName: id, playlist: url, language: "en", xhr: { flags: ["CORS_BLOCKED"], headers: {} } };
 }
 ```
 
@@ -41,9 +41,9 @@ Wire the workers into the module:
 
 ```typescript
 export default defineProviderModule(PROVIDER, manifest.providers["my-provider"], {
-  getStreams,      // eager (optional)
-  getLazyStreams,  // lazy listing (optional)
-  resolveLazy      // lazy resolution (optional)
+	getStreams, // eager (optional)
+	getLazyStreams, // lazy listing (optional)
+	resolveLazy // lazy resolution (optional)
 });
 ```
 
@@ -52,15 +52,25 @@ export default defineProviderModule(PROVIDER, manifest.providers["my-provider"],
 The manager decides eager vs lazy with the `lazy` config flag:
 
 ```typescript
-const manager = await GrabitManager.create({ source: { /* ... */ }, tmdbApiKeys, lazy: true });
+const manager = await GrabitManager.create({
+	source: {
+		/* ... */
+	},
+	tmdbApiKeys,
+	lazy: true
+});
 ```
 
 - `lazy: false` (default) — `manager.getStreams()` calls each provider's **`getStreams`**.
 - `lazy: true` — `manager.getStreams()` / `getStreamsProgressive()` / `getStreamsByScheme()` call each
-  provider's **`getLazyStreams`**, falling back to `getStreams` when a provider has no lazy worker.
+  provider's **`getLazyStreams`**, falling back to `getStreams` when a provider has no lazy worker
+  (because `lazyFallbackToStreams` defaults to `true`). Set `lazyFallbackToStreams: false` for
+  **strict lazy mode**, where only providers that implement `getLazyStreams` participate.
 
-`manager.getLazyStreams(requester)` forces lazy listing regardless of the flag. A media provider is
-eligible when it implements `getStreams` **or** `getLazyStreams`.
+`manager.getLazyStreams(requester)` forces lazy listing regardless of the flag. Provider eligibility
+follows the same rule: with fallback on (default) a provider is eligible when it implements
+`getStreams` **or** `getLazyStreams`; in strict mode only `getLazyStreams` counts, so an eager-only
+provider is skipped rather than run to an empty result (which would otherwise dent its health metrics).
 
 ## On the host
 

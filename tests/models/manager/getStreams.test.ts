@@ -30,6 +30,118 @@ describe("GrabitManager › getStreams", () => {
 		expect(results.map((r) => r.providerName).sort()).toEqual(["A", "B"]);
 	});
 
+	it("should fall back to getStreams in lazy mode by default", async () => {
+		const eagerOnly = createMockModule({
+			name: "eager-only",
+			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "eager-only" })])
+		});
+
+		// lazyFallbackToStreams defaults to true, so an eager-only provider still runs in lazy mode.
+		const manager = await GrabitManager.create(createRegistryConfig({ "eager-only": eagerOnly }, { lazy: true }));
+		expect((await manager.getStreams(GRAB_REQUEST)).map((r) => r.providerName)).toEqual(["eager-only"]);
+		expect(eagerOnly.workers.getStreams).toHaveBeenCalledTimes(1);
+	});
+
+	it("should not fall back to getStreams in strict lazy mode (lazyFallbackToStreams: false)", async () => {
+		const eagerOnly = createMockModule({
+			name: "eager-only",
+			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "eager-only" })])
+		});
+
+		const strict = await GrabitManager.create(createRegistryConfig({ "eager-only": eagerOnly }, { lazy: true, lazyFallbackToStreams: false }));
+		expect(await strict.getStreams(GRAB_REQUEST)).toEqual([]);
+		expect(eagerOnly.workers.getStreams).not.toHaveBeenCalled();
+	});
+
+	it("should fall back to getStreams in lazy mode when configured", async () => {
+		const fallbackProvider = createMockModule({
+			name: "fallback-provider",
+			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "fallback-provider" })])
+		});
+		const manager = await GrabitManager.create(createRegistryConfig({ fallbackProvider }, { lazy: true, lazyFallbackToStreams: true }));
+		const worker = (manager as any).mediaWorker(fallbackProvider, true);
+
+		expect(await worker(GRAB_REQUEST, {})).toHaveLength(1);
+		expect(fallbackProvider.workers.getStreams).toHaveBeenCalledTimes(1);
+	});
+
+	it("should prefer getLazyStreams over the fallback worker", async () => {
+		const getStreams = jest.fn().mockResolvedValue([mockMediaSource({ providerName: "eager" })]);
+		const getLazyStreams = jest.fn().mockResolvedValue([mockMediaSource({ providerName: "lazy" })]);
+		const provider = createMockModule({ getStreams, getLazyStreams });
+		const manager = await GrabitManager.create(createRegistryConfig({ provider }, { lazy: true, lazyFallbackToStreams: true }));
+
+		const results = await manager.getStreams(GRAB_REQUEST);
+
+		expect(results[0].providerName).toBe("lazy");
+		expect(getLazyStreams).toHaveBeenCalledTimes(1);
+		expect(getStreams).not.toHaveBeenCalled();
+	});
+
+	it("should not select or penalise an eager-only provider in strict lazy mode (no fallback)", async () => {
+		const eagerOnly = createMockModule({
+			name: "eager-only",
+			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "eager-only" })])
+		});
+		const manager = await GrabitManager.create(createRegistryConfig({ "eager-only": eagerOnly }, { lazy: true, lazyFallbackToStreams: false }));
+
+		// Excluded from selection → never run → no failure metric (so it can't be auto-disabled).
+		expect(manager.getProvidersByRequest("media", GRAB_REQUEST)).toHaveLength(0);
+		expect(await manager.getStreams(GRAB_REQUEST)).toEqual([]);
+		expect(eagerOnly.workers.getStreams).not.toHaveBeenCalled();
+		expect(manager.getMetrics().has("eager-only")).toBe(false);
+	});
+
+	it("should select a lazy-only provider in lazy mode", async () => {
+		const lazyOnly = createMockModule({
+			name: "lazy-only",
+			getLazyStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "lazy-only" })])
+		});
+		// The helper always seeds a default getStreams; drop it to make this provider lazy-only.
+		delete (lazyOnly.workers as any).getStreams;
+
+		const manager = await GrabitManager.create(createRegistryConfig({ "lazy-only": lazyOnly }, { lazy: true }));
+
+		expect(manager.getProvidersByRequest("media", GRAB_REQUEST)).toHaveLength(1);
+		const results = await manager.getStreams(GRAB_REQUEST);
+		expect(results.map((r) => r.providerName)).toEqual(["lazy-only"]);
+		expect(lazyOnly.workers.getLazyStreams).toHaveBeenCalledTimes(1);
+	});
+
+	it("should include an eager-only provider in lazy mode when fallback is enabled", async () => {
+		const eagerOnly = createMockModule({
+			name: "eager-only",
+			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "eager-only" })])
+		});
+		const manager = await GrabitManager.create(createRegistryConfig({ "eager-only": eagerOnly }, { lazy: true, lazyFallbackToStreams: true }));
+
+		expect(manager.getProvidersByRequest("media", GRAB_REQUEST)).toHaveLength(1);
+		const results = await manager.getStreams(GRAB_REQUEST);
+		expect(results.map((r) => r.providerName)).toEqual(["eager-only"]);
+		expect(eagerOnly.workers.getStreams).toHaveBeenCalledTimes(1);
+	});
+
+	it("getLazyStreams() forces lazy selection: skips eager-only, keeps lazy-only, even when config.lazy is false", async () => {
+		const eagerOnly = createMockModule({
+			name: "eager-only",
+			getStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "eager-only" })])
+		});
+		const lazyOnly = createMockModule({
+			name: "lazy-only",
+			getLazyStreams: jest.fn().mockResolvedValue([mockMediaSource({ providerName: "lazy-only" })])
+		});
+		delete (lazyOnly.workers as any).getStreams;
+
+		// config.lazy defaults to false here — getLazyStreams() must still force lazy mode.
+		// lazyFallbackToStreams:false makes it strict so the eager-only provider is skipped.
+		const manager = await GrabitManager.create(createRegistryConfig({ "eager-only": eagerOnly, "lazy-only": lazyOnly }, { lazyFallbackToStreams: false }));
+		const results = await manager.getLazyStreams(GRAB_REQUEST);
+
+		expect(results.map((r) => r.providerName)).toEqual(["lazy-only"]);
+		expect(lazyOnly.workers.getLazyStreams).toHaveBeenCalledTimes(1);
+		expect(eagerOnly.workers.getStreams).not.toHaveBeenCalled();
+	});
+
 	it("should return empty array when no providers support the requested media type", async () => {
 		const mod = createMockModule({ supportedMediaTypes: ["serie"] });
 		const manager = await GrabitManager.create(createRegistryConfig({ test: mod }));

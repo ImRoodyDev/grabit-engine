@@ -54,19 +54,19 @@
 
 The main orchestrator — creates, manages, and queries provider plugins.
 
-| Method                                  | Returns                                | Description                                                                                                                          |
-| --------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `GrabitManager.create(config)`          | `Promise<GrabitManager>`               | Creates the manager and loads all your provider plugins.                                                                             |
-| `getStreams(request)`                   | `Promise<MediaSource[]>`               | Gets streams from **all active providers** for the given media. Returns everything in one list. Returns **lazy handles** when the manager was created with `lazy: true`. |
-| `getLazyStreams(request)`               | `Promise<MediaSource[]>`               | Forces lazy listing regardless of `config.lazy`: dispatches to each provider's `getLazyStreams` (falling back to `getStreams`). Handles are resolved on play via `resolveLazySource`. |
-| `resolveLazySource(scheme, id, request)`| `Promise<MediaSource \| null>`         | Resolves one lazy handle on play. `id` comes from `source.lazy.id`; the request re-supplies the media context. Returns the fully-shaped source or `null`.                |
-| `getSubtitles(request)`                 | `Promise<SubtitleSource[]>`            | Gets subtitles from **all active providers** for the given media.                                                                    |
-| `getStreamsByScheme(scheme, request)`   | `Promise<MediaSource[]>`               | Gets streams from **one specific provider** by its scheme. Accepts a `RawScrapeRequester` — TMDB enrichment is handled internally. Honors `config.lazy`.   |
-| `getSubtitlesByScheme(scheme, request)` | `Promise<SubtitleSource[]>`            | Gets subtitles from **one specific provider** by its scheme. Accepts a `RawScrapeRequester` — TMDB enrichment is handled internally. |
-| `closeOperations()`                     | `Promise<void>`                        | Cancels all in-progress and queued scrape operations. Useful for cleanup when navigating away or aborting.                           |
-| `getProvidersByRequest(type, request)`  | `ProviderModule[]`                     | Returns the list of active providers that match the given type (`"media"` or `"subtitle"`) and request, sorted by priority.          |
-| `getMetrics()`                          | `ReadonlyMap<string, ProviderMetrics>` | Returns health stats for each provider (errors, successes, last activity).                                                           |
-| `getMetricsReport()`                    | `ProviderHealthReport[]`               | Returns a full health report for every loaded provider — error rate, status, and more.                                               |
+| Method                                   | Returns                                | Description                                                                                                                                                                                                                              |
+| ---------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GrabitManager.create(config)`           | `Promise<GrabitManager>`               | Creates the manager and loads all your provider plugins.                                                                                                                                                                                 |
+| `getStreams(request)`                    | `Promise<MediaSource[]>`               | Gets streams from **all active providers** for the given media. Returns everything in one list. Returns **lazy handles** when the manager was created with `lazy: true`.                                                                 |
+| `getLazyStreams(request)`                | `Promise<MediaSource[]>`               | Forces lazy listing regardless of `config.lazy`: dispatches to each provider's `getLazyStreams` (falling back to `getStreams` unless `lazyFallbackToStreams` is set to `false`). Handles are resolved on play via `resolveLazySource`. |
+| `resolveLazySource(scheme, id, request)` | `Promise<MediaSource \| null>`         | Resolves one lazy handle on play. `id` comes from `source.lazy.id`; the request re-supplies the media context. Returns the fully-shaped source or `null`.                                                                                |
+| `getSubtitles(request)`                  | `Promise<SubtitleSource[]>`            | Gets subtitles from **all active providers** for the given media.                                                                                                                                                                        |
+| `getStreamsByScheme(scheme, request)`    | `Promise<MediaSource[]>`               | Gets streams from **one specific provider** by its scheme. Accepts a `RawScrapeRequester` — TMDB enrichment is handled internally. Honors `config.lazy`.                                                                                 |
+| `getSubtitlesByScheme(scheme, request)`  | `Promise<SubtitleSource[]>`            | Gets subtitles from **one specific provider** by its scheme. Accepts a `RawScrapeRequester` — TMDB enrichment is handled internally.                                                                                                     |
+| `closeOperations()`                      | `Promise<void>`                        | Cancels all in-progress and queued scrape operations. Useful for cleanup when navigating away or aborting.                                                                                                                               |
+| `getProvidersByRequest(type, request)`   | `ProviderModule[]`                     | Returns the list of active providers that match the given type (`"media"` or `"subtitle"`) and request, sorted by priority.                                                                                                              |
+| `getMetrics()`                           | `ReadonlyMap<string, ProviderMetrics>` | Returns health stats for each provider (errors, successes, last activity).                                                                                                                                                               |
+| `getMetricsReport()`                     | `ProviderHealthReport[]`               | Returns a full health report for every loaded provider — error rate, status, and more.                                                                                                                                                   |
 
 ### `ProviderManagerConfig`
 
@@ -78,6 +78,8 @@ The configuration object passed to `GrabitManager.create(config)`.
 | `tmdbApiKeys`                                    | `string[]`       | ✅       | —           | One or more TMDB API keys used for metadata lookups.                                                                                                                           |
 | `debug`                                          | `boolean`        | ❌       | `false`     | Enables extra logging and error information for development.                                                                                                                   |
 | `strict`                                         | `boolean`        | ❌       | `false`     | Throw on validation errors instead of warning.                                                                                                                                 |
+| `lazy`                                           | `boolean`        | ❌       | `false`     | Dispatch stream requests to providers' `getLazyStreams` workers and return lazy handles.                                                                                       |
+| `lazyFallbackToStreams`                          | `boolean`        | ❌       | `true`      | In lazy mode, use `getStreams` when a provider does not implement `getLazyStreams`. Set `false` for strict lazy mode (only `getLazyStreams` providers participate).            |
 | `autoInit`                                       | `boolean`        | ❌       | —           | Auto-initialize providers on load.                                                                                                                                             |
 | `autoUpdateIntervalMinutes`                      | `number`         | ❌       | `15`        | Interval (in minutes) for auto-updating providers from remote sources. Minimum is 5. **Only applies to remote sources.**                                                       |
 | `cache`                                          | `object`         | ❌       | —           | Caching configuration. See below.                                                                                                                                              |
@@ -215,13 +217,13 @@ The request object accepted by the manager's `getStreams()` and `getSubtitles()`
 
 ### Fields
 
-| Field               | Type                                                         | Required | Description                                                                                                                                                                                             |
-| ------------------- | ------------------------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `media`             | `RequesterMovieMedia \| RequesterSerieMedia \| ChannelMedia` | ✅       | The movie, show, or channel you want to scrape. Can be a **partial** object — only `type` + `tmdbId` are required for movies; `type` + `tmdbId` + `season` + `episode` for series. TMDB fills the rest. |
-| `targetLanguageISO` | `string`                                                     | ✅       | Language code like `"en"` or `"fr"`. Used to fetch localized titles from TMDB.                                                                                                                          |
-| `userAgent`         | `string`                                                     | ❌       | Custom user-agent string for requests.                                                                                                                                                                  |
-| `proxy`             | `ProxyConfig` (`{ agent, auth? }` or `{ resolver, headers? }`) | ❌       | Optional proxy — a proxy agent, or a URL resolver that rewrites requests to a proxy endpoint. See [Configuration → Proxy](CONFIGURATION.md#proxy).                                                       |
-| `userIP`            | `string`                                                     | ❌       | Optional user IP address of the requester.                                                                                                                                                              |
+| Field               | Type                                                           | Required | Description                                                                                                                                                                                             |
+| ------------------- | -------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `media`             | `RequesterMovieMedia \| RequesterSerieMedia \| ChannelMedia`   | ✅       | The movie, show, or channel you want to scrape. Can be a **partial** object — only `type` + `tmdbId` are required for movies; `type` + `tmdbId` + `season` + `episode` for series. TMDB fills the rest. |
+| `targetLanguageISO` | `string`                                                       | ✅       | Language code like `"en"` or `"fr"`. Used to fetch localized titles from TMDB.                                                                                                                          |
+| `userAgent`         | `string`                                                       | ❌       | Custom user-agent string for requests.                                                                                                                                                                  |
+| `proxy`             | `ProxyConfig` (`{ agent, auth? }` or `{ resolver, headers? }`) | ❌       | Optional proxy — a proxy agent, or a URL resolver that rewrites requests to a proxy endpoint. See [Configuration → Proxy](CONFIGURATION.md#proxy).                                                      |
+| `userIP`            | `string`                                                       | ❌       | Optional user IP address of the requester.                                                                                                                                                              |
 
 ### Examples
 
@@ -340,9 +342,9 @@ Request shape accepted by `ctx.puppeteer.launch(url, request)`.
 
 Options accepted by `ctx.xhr.fetch` / `ctx.xhr.fetchResponse` / `ctx.xhr.status`.
 
-| Field             | Type      | Required | Default | Description                                                         |
-| ----------------- | --------- | -------- | ------- | ------------------------------------------------------------------- |
-| `attachUserAgent` | `boolean` | ❌       | `false` | Attach the requester's `User-Agent` header to the request.          |
+| Field             | Type      | Required | Default | Description                                                |
+| ----------------- | --------- | -------- | ------- | ---------------------------------------------------------- |
+| `attachUserAgent` | `boolean` | ❌       | `false` | Attach the requester's `User-Agent` header to the request. |
 
 > The requester's proxy (if any) is always applied — providers can't opt out. Also accepts all
 > fields from `RequestInit`, `RequestRetryInit`, and `RequestTimeoutInit`.
@@ -625,18 +627,18 @@ General-purpose runtime helpers.
 
 Helpers for loading the `github` source outside Node. Exported from the package root.
 
-| Function             | Signature                                                       | Description                                                                                                                            |
-| -------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `moduleResolver`     | `(scheme, sourceCode) → Promise<ProviderModule>`                | Default `moduleResolver` for `GithubSource`. Evaluates a fetched bundle with the `Function` constructor (Hermes-safe, unlike `eval`) and re-throws failures with the provider scheme attached. |
-| `setupGrabitGlobals` | `(options?: GrabitGlobalsOptions) → GrabitGlobalsReport`        | Registers the globals bundled providers read at runtime and reports runtime support. Call once before creating a manager. Never overwrites existing globals. |
+| Function             | Signature                                                | Description                                                                                                                                                                                    |
+| -------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `moduleResolver`     | `(scheme, sourceCode) → Promise<ProviderModule>`         | Default `moduleResolver` for `GithubSource`. Evaluates a fetched bundle with the `Function` constructor (Hermes-safe, unlike `eval`) and re-throws failures with the provider scheme attached. |
+| `setupGrabitGlobals` | `(options?: GrabitGlobalsOptions) → GrabitGlobalsReport` | Registers the globals bundled providers read at runtime and reports runtime support. Call once before creating a manager. Never overwrites existing globals.                                   |
 
 **`GrabitGlobalsOptions`**
 
-| Field    | Type      | Description                                                                                            |
-| -------- | --------- | ------------------------------------------------------------------------------------------------------ |
-| `crypto` | `unknown` | Crypto implementation, exposed as `globalThis.__grabitCrypto`. In RN: `require("react-native-quick-crypto")`. Optional. |
-| `buffer` | `unknown` | Buffer implementation, exposed as `globalThis.Buffer`. In RN: `require("@craftzdog/react-native-buffer").Buffer`. Optional but required for providers that decode binary data — RN has no global `Buffer`. |
-| `base64` | `{ encode, decode }` | base64 codec used to polyfill `globalThis.btoa` / `globalThis.atob` on runtimes that lack them (RN < 0.74). In RN: `require("base-64")`. Ignored when the runtime already provides both. |
+| Field    | Type                 | Description                                                                                                                                                                                                |
+| -------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crypto` | `unknown`            | Crypto implementation, exposed as `globalThis.__grabitCrypto`. In RN: `require("react-native-quick-crypto")`. Optional.                                                                                    |
+| `buffer` | `unknown`            | Buffer implementation, exposed as `globalThis.Buffer`. In RN: `require("@craftzdog/react-native-buffer").Buffer`. Optional but required for providers that decode binary data — RN has no global `Buffer`. |
+| `base64` | `{ encode, decode }` | base64 codec used to polyfill `globalThis.btoa` / `globalThis.atob` on runtimes that lack them (RN < 0.74). In RN: `require("base-64")`. Ignored when the runtime already provides both.                   |
 
 **`GrabitGlobalsReport`**
 
@@ -658,7 +660,7 @@ setupGrabitGlobals({ crypto: QuickCrypto, buffer: Buffer, base64 });
 
 const manager = await GrabitManager.create({
 	source: { type: "github", url: "owner/repo", branch: "main", moduleResolver },
-	tmdbApiKeys: [KEY],
+	tmdbApiKeys: [KEY]
 });
 ```
 

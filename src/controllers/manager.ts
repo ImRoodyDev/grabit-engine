@@ -3,7 +3,15 @@ import puppeteerCore, { disableHeadlessMode } from "../core/puppeteer.ts";
 import { configurePuppeteerPool, releasePuppeteerPool, retainPuppeteerPool } from "./puppeteerPool.ts";
 import xhrCore from "../core/xhr.ts";
 import { solveChallenge } from "../core/solver.ts";
-import { ScrapeRequester, MediaSource, SubtitleSource, ProviderModule, ProviderModuleManifest, RawScrapeRequester, resolveFetchControls } from "../types/index.ts";
+import {
+	ScrapeRequester,
+	MediaSource,
+	SubtitleSource,
+	ProviderModule,
+	ProviderModuleManifest,
+	RawScrapeRequester,
+	resolveFetchControls
+} from "../types/index.ts";
 import { ProviderContext } from "../types/models/Context.ts";
 import { ProviderManagerConfig, IProviderManagerWorkers } from "../types/models/Manager.ts";
 import { DebugLogger, Logger } from "../utils/logger.ts";
@@ -261,7 +269,8 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 		rawRequester: RawScrapeRequester,
 		providerType: ProviderModuleManifest["type"],
 		worker: (module: ProviderModule, requester: ScrapeRequester, context: ProviderContext) => Promise<T[]>,
-		operationOptions?: { ignoreQuorum?: boolean; onPartialResult?: (result: T[]) => void }
+		operationOptions?: { ignoreQuorum?: boolean; onPartialResult?: (result: T[]) => void },
+		lazyMode?: boolean
 	): Promise<T[]> {
 		const requester: ScrapeRequester = {
 			...rawRequester,
@@ -271,7 +280,7 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 			proxy: rawRequester.proxy ?? this.config.proxy
 		};
 
-		const providers = this.getProvidersByRequest(providerType, requester);
+		const providers = this.getProvidersByRequest(providerType, requester, lazyMode);
 		if (providers.length === 0) {
 			GrabitManager.logger.warn(`No providers found that support ${providerType} type "${requester.media.type}" for the given request`);
 			return [];
@@ -371,8 +380,12 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 	// --------------- Worker methods ---------------
 	// --------------------------------------------------
 
-	/** Get the list of providers by the supported requester */
-	public getProvidersByRequest(type: ProviderModuleManifest["type"], requester: ScrapeRequester) {
+	/** Get the list of providers by the supported requester.
+	 *  `lazyMode` decides which media worker counts as usable (defaults to `config.lazy`):
+	 *  in lazy mode a provider needs `getLazyStreams` (or `getStreams` when
+	 *  `lazyFallbackToStreams` is on), so an eager-only provider is excluded rather than run
+	 *  to an empty result and penalised in its health metrics. */
+	public getProvidersByRequest(type: ProviderModuleManifest["type"], requester: ScrapeRequester, lazyMode: boolean = this.config.lazy === true) {
 		// Environment never changes at runtime — hoisted out of the predicate so it is
 		// resolved once per call instead of once per loaded module.
 		const runningOnNode = isNode();
@@ -382,10 +395,11 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 			// In node anything is compatible
 			// but in native enviroment only the universal providers should be included
 			const envCompatible = runningOnNode ? true : module.meta.env === "universal";
-			// Filter based on the media type
+			// Filter based on the media type. Media eligibility mirrors mediaWorker so a
+			// selected provider always has a worker to run in the current (lazy?) mode.
 			const typeCompatible =
 				(type === "subtitle" && module.workers.getSubtitles !== undefined) || //..
-				(type === "media" && (module.workers.getStreams !== undefined || module.workers.getLazyStreams !== undefined));
+				(type === "media" && this.hasUsableMediaWorker(module, lazyMode));
 
 			// Revalidate the requester validated media if there are things missing that are required by the provider,
 			//  for example if the requester media is missing ids
@@ -422,28 +436,47 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 	}
 
 	/** Pick the media worker for a module honoring lazy mode.
-	 *  In lazy mode: `getLazyStreams` when present, else `getStreams`.
+	 *  In lazy mode: `getLazyStreams` when present, optionally falling back to `getStreams`.
 	 *  In normal mode: `getStreams` (a lazy-only provider produces nothing and is skipped). */
 	private mediaWorker(module: ProviderModule, lazy: boolean): ((req: ScrapeRequester, ctx: ProviderContext) => Promise<MediaSource[]>) | null {
-		if (lazy) return module.workers.getLazyStreams ?? module.workers.getStreams ?? null;
+		if (lazy) return module.workers.getLazyStreams ?? (this.config.lazyFallbackToStreams !== false ? module.workers.getStreams : undefined) ?? null;
 		return module.workers.getStreams ?? null;
+	}
+
+	/** Whether a module has a media worker to run in the given mode. Mirrors {@link mediaWorker}
+	 *  so provider selection and dispatch never drift. */
+	private hasUsableMediaWorker(module: ProviderModule, lazy: boolean): boolean {
+		return this.mediaWorker(module, lazy) !== null;
 	}
 
 	public async getStreams(rawRequester: RawScrapeRequester): Promise<MediaSource[]> {
 		const lazy = this.config.lazy === true;
-		return this.scrapeProviders(rawRequester, "media", (mod, req, ctx) => {
-			const worker = this.mediaWorker(mod, lazy);
-			return worker ? worker(req, ctx) : Promise.resolve([]);
-		});
+		return this.scrapeProviders(
+			rawRequester,
+			"media",
+			(mod, req, ctx) => {
+				const worker = this.mediaWorker(mod, lazy);
+				return worker ? worker(req, ctx) : Promise.resolve([]);
+			},
+			undefined,
+			lazy
+		);
 	}
 
 	/** Force lazy listing regardless of `config.lazy`. Dispatches to `getLazyStreams`
-	 *  (falling back to `getStreams`); each returned handle is resolved on play via {@link resolveLazySource}. */
+	 *  (or `getStreams` when `lazyFallbackToStreams` is enabled); each returned handle is
+	 *  resolved on play via {@link resolveLazySource}. */
 	public async getLazyStreams(rawRequester: RawScrapeRequester): Promise<MediaSource[]> {
-		return this.scrapeProviders(rawRequester, "media", (mod, req, ctx) => {
-			const worker = this.mediaWorker(mod, true);
-			return worker ? worker(req, ctx) : Promise.resolve([]);
-		});
+		return this.scrapeProviders(
+			rawRequester,
+			"media",
+			(mod, req, ctx) => {
+				const worker = this.mediaWorker(mod, true);
+				return worker ? worker(req, ctx) : Promise.resolve([]);
+			},
+			undefined,
+			true
+		);
 	}
 
 	public async getSubtitles(rawRequester: RawScrapeRequester): Promise<SubtitleSource[]> {
@@ -459,7 +492,8 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 				const worker = this.mediaWorker(mod, lazy);
 				return worker ? worker(req, ctx) : Promise.resolve([]);
 			},
-			{ ignoreQuorum: true, onPartialResult }
+			{ ignoreQuorum: true, onPartialResult },
+			lazy
 		);
 	}
 
@@ -511,9 +545,7 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 			proxy: rawRequester.proxy ?? this.config.proxy
 		};
 
-		const results = await this.createOperation([module], (mod, _limiter, signal) =>
-			mod.workers.getSubtitles!({ ...requester, signal }, GrabitManager.context)
-		);
+		const results = await this.createOperation([module], (mod, _limiter, signal) => mod.workers.getSubtitles!({ ...requester, signal }, GrabitManager.context));
 		return sortByTargetLanguage(results, requester.targetLanguageISO);
 	}
 

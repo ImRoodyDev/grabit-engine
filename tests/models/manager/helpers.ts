@@ -104,6 +104,7 @@ type FlatModuleOverrides = {
 	supportedMediaTypes?: string[];
 	priority?: number;
 	getStreams?: IProviderModuleWorkers["getStreams"];
+	getLazyStreams?: IProviderModuleWorkers["getLazyStreams"];
 	getSubtitles?: IProviderModuleWorkers["getSubtitles"];
 	cleanup?: IProviderModuleWorkers["cleanup"];
 };
@@ -148,6 +149,7 @@ export function createMockModule(overrides: FlatModuleOverrides = {}): ProviderM
 		provider: createMockProvider(scheme),
 		workers: {
 			...(overrides.getStreams !== undefined ? { getStreams: overrides.getStreams } : { getStreams: jest.fn().mockResolvedValue([mockMediaSource()]) }),
+			...(overrides.getLazyStreams !== undefined ? { getLazyStreams: overrides.getLazyStreams } : {}),
 			...(overrides.getSubtitles !== undefined ? { getSubtitles: overrides.getSubtitles } : {}),
 			...(overrides.cleanup !== undefined ? { cleanup: overrides.cleanup } : {})
 		}

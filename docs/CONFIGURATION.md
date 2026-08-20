@@ -32,7 +32,13 @@
 <td><code>lazy</code></td>
 <td><code>boolean</code></td>
 <td><code>false</code></td>
-<td>Return lazy source handles (no <code>playlist</code>) from <code>getStreams</code> by dispatching to each provider's <code>getLazyStreams</code> (falls back to <code>getStreams</code>). Resolve a handle on play with <code>resolveLazySource</code>. See <a href="./LAZY_SOURCES.md">Lazy sources</a>.</td>
+<td>Return lazy source handles (no <code>playlist</code>) from <code>getStreams</code> by dispatching to each provider's <code>getLazyStreams</code>. Resolve a handle on play with <code>resolveLazySource</code>. See <a href="./LAZY_SOURCES.md">Lazy sources</a>.</td>
+</tr>
+<tr>
+<td><code>lazyFallbackToStreams</code></td>
+<td><code>boolean</code></td>
+<td><code>true</code></td>
+<td>In lazy mode, use a provider's <code>getStreams</code> worker when it has no <code>getLazyStreams</code> (so enabling <code>lazy</code> never silently drops eager-only providers). Set <code>false</code> for strict lazy mode where only providers with <code>getLazyStreams</code> participate.</td>
 </tr>
 <tr>
 <td><code>autoUpdateIntervalMinutes</code></td>
@@ -192,7 +198,6 @@ Providers that fail too often (more than `errorThresholdRate` after `minOperatio
 
 <br />
 
-
 ---
 
 ## Proxy
@@ -207,7 +212,7 @@ A single `proxy` field takes one of two shapes:
   as a `Proxy-Authorization` header (URL-embedded `user:pass@` creds work through the agent).
 - **URL resolver** — `{ resolver, headers? }`. Rewrites each request to a proxy endpoint that
   fetches the target for you (e.g. a web proxy that takes the target as `?url=`). `resolver(url,
-  { method, headers, body })` receives the **target** request (method, UA/Referer/cookies, body) so
+{ method, headers, body })` receives the **target** request (method, UA/Referer/cookies, body) so
   it can encode them into the endpoint however the proxy expects, and returns the endpoint URL.
   The actual request to that endpoint is a plain **`GET`** carrying **only** the resolver's own
   `headers` (its API key/auth) plus the abort signal — the target headers/method/body are never put
@@ -218,20 +223,24 @@ import { HttpsProxyAgent } from "https-proxy-agent";
 
 // Agent-based
 const manager = await GrabitManager.create({
-  source: { /* … */ },
-  proxy: {
-    agent: new HttpsProxyAgent("http://user:pass@proxy.example:8080"),
-    auth: "Bearer <token>" // optional Proxy-Authorization header
-  }
+	source: {
+		/* … */
+	},
+	proxy: {
+		agent: new HttpsProxyAgent("http://user:pass@proxy.example:8080"),
+		auth: "Bearer <token>" // optional Proxy-Authorization header
+	}
 });
 
 // Resolver-based (URL-rewriting web proxy)
 const manager2 = await GrabitManager.create({
-  source: { /* … */ },
-  proxy: {
-    resolver: (url) => `https://proxy.example/get?url=${encodeURIComponent(String(url))}`,
-    headers: { "x-api-key": "<token>" }
-  }
+	source: {
+		/* … */
+	},
+	proxy: {
+		resolver: (url) => `https://proxy.example/get?url=${encodeURIComponent(String(url))}`,
+		headers: { "x-api-key": "<token>" }
+	}
 });
 
 // Per scrape request — overrides the default; falls back to it when omitted:
