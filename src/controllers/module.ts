@@ -262,7 +262,14 @@ export abstract class ModuleManager {
 	 * Returns `true` when the module should be disabled.
 	 */
 	protected shouldDisableModule(metrics: ProviderMetrics): boolean {
-		const { errorThresholdRate = 0.7, minOperationsForEvaluation = 10 } = this.config.scrapeConfig ?? {};
+		const scrapeConfig = this.config.scrapeConfig ?? {};
+		const { minOperationsForEvaluation = 10 } = scrapeConfig;
+
+		// Distinguish an explicit `errorThresholdRate: undefined` (documented as
+		// "disable threshold checking entirely") from an absent key (use the 0.7
+		// default). A destructuring default (`= 0.7`) collapses both to 0.7, which
+		// made the `=== undefined` disable path unreachable.
+		const errorThresholdRate = "errorThresholdRate" in scrapeConfig ? scrapeConfig.errorThresholdRate : 0.7;
 		if (errorThresholdRate === undefined) return false;
 
 		const total = metrics.errors + metrics.successes;
