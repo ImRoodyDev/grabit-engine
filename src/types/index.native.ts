@@ -6,6 +6,7 @@ export * from "./models/Provider.ts";
 export * from "./models/Cheerio.ts";
 export * from "./models/Context.ts";
 export * from "./models/Xhr.ts";
+export * from "./models/Solver.ts";
 export {
 	ProvidersManifest,
 	ExternalProviderManifest,
