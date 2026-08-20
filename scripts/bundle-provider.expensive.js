@@ -45,17 +45,6 @@ const DEFAULT_OUT_DIR = path.join(ROOT, "dist");
 const MANIFEST_PATH = path.join(ROOT, "manifest.json");
 const PROVIDER_SHIM_PATH = "grabit-engine-provider-shim";
 const PROVIDER_CRYPTO_SHIM_PATH = "grabit-engine-provider-crypto-shim";
-const PROVIDER_MANIFEST_NAMESPACE = "provider-manifest";
-
-/**
- * Pure npm deps reachable through the shim. They are parsers with no import-time side
- * effects, but their published entries are CJS with no `sideEffects` field, so esbuild
- * has to assume they matter and inlines them into every bundle. `tldts` alone is ~11k
- * lines (77% of a typical bundle) while only a couple of providers ever call it.
- * Marking them side-effect-free lets esbuild drop the ones a provider never touches.
- */
-const TREE_SHAKABLE_DEPS = ["tldts", "iso-639-1", "parse-duration"];
-const TREE_SHAKABLE_FILTER = new RegExp(`^(?:${TREE_SHAKABLE_DEPS.join("|")})(?:/|$)`);
 
 /**
  * Syntax that React Native's Hermes cannot compile at runtime.
@@ -232,21 +221,6 @@ function resolveDirs(srcFlag, outFlag) {
 }
 
 /**
- * Reduce the manifest to the entry the provider being bundled actually reads.
- *
- * Providers do `import manifest from "manifest.json"` then index one scheme, so esbuild
- * inlines all ~27 entries into every bundle. That is dead weight, and it also couples the
- * bundles: editing one provider's entry rewrites every other provider's index.js.
- * Unknown scheme falls back to the full manifest so nothing the provider reads goes missing.
- */
-function slimManifest(manifest, scheme) {
-	const key = String(scheme).split("/").pop();
-	const providers = manifest?.providers;
-	if (!providers || !Object.prototype.hasOwnProperty.call(providers, key)) return manifest;
-	return { ...manifest, providers: { [key]: providers[key] } };
-}
-
-/**
  * Load and parse the manifest.json to get provider metadata.
  * Returns a map of scheme → manifest entry, or null if the manifest doesn't exist.
  */
@@ -374,9 +348,8 @@ function cleanBundles(providers) {
  *
  * @param {Set<string>} contextImports  Mutable set — collects context-provided
  *                                       packages that were imported directly.
- * @param {string} scheme  Scheme being bundled — used to slim manifest.json.
  */
-function createExternalizePlugin(contextImports, scheme) {
+function createExternalizePlugin(contextImports) {
 	let shimResolveDir = null;
 	let isResolvingShim = false;
 
@@ -413,35 +386,6 @@ function createExternalizePlugin(contextImports, scheme) {
 				}
 
 				return { path: PROVIDER_SHIM_PATH, namespace: "provider-shim" };
-			});
-
-			// ── 1b. Serve manifest.json slimmed to this provider's entry ──
-			build.onResolve({ filter: /manifest\.json$/ }, (args) => {
-				if (args.kind === "entry-point") return null;
-				const resolved = path.resolve(args.resolveDir, args.path);
-				if (resolved !== MANIFEST_PATH) return null;
-				return { path: MANIFEST_PATH, namespace: PROVIDER_MANIFEST_NAMESPACE };
-			});
-
-			build.onLoad({ filter: /.*/, namespace: PROVIDER_MANIFEST_NAMESPACE }, () => {
-				const full = JSON.parse(fs.readFileSync(MANIFEST_PATH, "utf-8"));
-				return { contents: JSON.stringify(slimManifest(full, scheme)), loader: "json" };
-			});
-
-			// ── 1c. Mark pure parsers side-effect-free so unused ones drop out ──
-			build.onResolve({ filter: TREE_SHAKABLE_FILTER }, async (args) => {
-				// pluginData guards the re-entry from our own build.resolve call below.
-				if (args.pluginData?.sideEffectFree) return null;
-
-				const result = await build.resolve(args.path, {
-					kind: args.kind === "entry-point" ? "import-statement" : args.kind,
-					resolveDir: args.resolveDir,
-					importer: args.importer,
-					pluginData: { sideEffectFree: true }
-				});
-				if (result.errors?.length) return null;
-
-				return { path: result.path, external: result.external, sideEffects: false };
 			});
 
 			build.onResolve({ filter: /^grabit-engine-provider-crypto-shim$/ }, () => resolveVirtualCryptoShim());
@@ -613,7 +557,7 @@ async function bundleProviders(providers, dryRun, outDir) {
 				minifyWhitespace: false,
 				minifyIdentifiers: false,
 
-				plugins: [createExternalizePlugin(contextImports, provider.scheme)],
+				plugins: [createExternalizePlugin(contextImports)],
 
 				// Handle JSON imports (manifest.json)
 				loader: {

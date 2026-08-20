@@ -259,9 +259,14 @@ The bundled `index.js` is a **snapshot** of your source files. If you edit `conf
 npx bundle-provider my-provider
 ```
 
-### manifest.json is inlined
+### manifest.json is inlined (own entry only)
 
-The `manifest.json` content gets embedded into the bundle at build time. If you update manifest fields (version, priority, etc.), re-bundle the affected providers.
+The bundler embeds **only the entry of the provider being bundled**, reshaped as
+`{ providers: { "<scheme>": { … } } }` so `manifest.providers['<scheme>']` still reads the same.
+If you update manifest fields (version, priority, etc.), re-bundle that provider.
+
+Because each bundle carries just its own entry, editing one provider's metadata leaves every other
+provider's `index.js` byte-identical — no more repo-wide diff churn from a one-line manifest edit.
 
 ### No external imports at runtime
 
@@ -277,7 +282,15 @@ Users author providers in TypeScript for type safety and IDE support. The `.ts` 
 
 ### Bundle size
 
-Typical bundles are **5–15 KB** depending on provider complexity. The inlined `grabit-engine` utilities add ~3–5 KB (after tree-shaking). This is a reasonable trade-off for full portability.
+Typical bundles are **60–105 KB** (~3k lines): the inlined `grabit-engine` utilities plus whatever
+extractors the provider pulls in.
+
+Pure npm parsers reachable through the shim (`tldts`, `iso-639-1`, `parse-duration`) are resolved as
+side-effect-free, so esbuild drops the ones a provider never calls. This matters most for `tldts`:
+it is ~11k lines, and before the change every bundle carried it even though only a couple of
+providers use it. A provider that *does* import it still pays for it — `lamovie` is ~370 KB.
+
+If a bundle looks unexpectedly large, check what it imports before assuming the bundler is at fault.
 
 ---
 
