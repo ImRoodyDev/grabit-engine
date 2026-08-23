@@ -1,11 +1,14 @@
 import { RegistrySource, ProvidersManifest } from "../types/index.ts";
 import { validateProviderModules } from "../utils/validator.ts";
-import { toInternalManifest } from "../utils/standard.ts";
+import { toInternalManifest, filterManifestProviders } from "../utils/standard.ts";
 import { ResolvedProviderSource } from "../types/models/Manager.ts";
 
 export namespace RegistryService {
 	export async function initializeProviders(source: RegistrySource): Promise<ResolvedProviderSource> {
-		const registry = new Map(Object.entries(source.providers));
+		// Filter on each module's declared language (from meta), then keep the originals.
+		const langMap = Object.fromEntries(Object.entries(source.providers).map(([scheme, mod]) => [scheme, { language: mod.meta.language }]));
+		const allowed = new Set(Object.keys(filterManifestProviders(langMap, source.filter)));
+		const registry = new Map(Object.entries(source.providers).filter(([scheme]) => allowed.has(scheme)));
 		// Inject the canonical scheme into each module's meta from the map key.
 		for (const [scheme, mod] of registry.entries()) {
 			mod.meta.scheme = scheme;

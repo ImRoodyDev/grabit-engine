@@ -14,7 +14,9 @@ export {
 	RegistrySource,
 	LocalSource,
 	ProviderSource,
-	ProviderManagerConfig
+	ProviderManagerConfig,
+	PersistentStore,
+	ProviderFilter
 } from "./models/Manager.ts";
 export * from "./models/Modules.ts";
 

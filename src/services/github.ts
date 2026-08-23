@@ -11,14 +11,16 @@ import {
 } from "../types/index.ts";
 import { ResolvedProviderSource } from "../types/models/Manager.ts";
 import { pathJoin } from "../utils/path.ts";
-import { isNode, toInternalManifest } from "../utils/standard.ts";
+import { isNode, toInternalManifest, filterManifestProviders, scheduleYield } from "../utils/standard.ts";
 import { Logger } from "../utils/logger.ts";
 import { validateProvidersManifest, validateProviderModules } from "../utils/validator.ts";
 import { appFetch } from "./fetcher.ts";
+import { createSourceCacheKey } from "./cache.ts";
+import * as ProviderStore from "./providerStore.ts";
 import pLimit from "p-limit";
 
 /** How many provider bundles are downloaded at once during a cold start. */
-export const PROVIDER_FETCH_CONCURRENCY = 6;
+export const PROVIDER_FETCH_CONCURRENCY = isNode() ? 6 : 2;
 
 export interface GitHubRepoInfo {
 	owner: string;
@@ -55,10 +57,13 @@ export namespace GithubService {
 	const GITHUB_REGEX = [/^https?:\/\/github\.com\/([^/]+)\/([^/.]+)(\.git)?$/, /^github\.com\/([^/]+)\/([^/.]+)(\.git)?$/, /^([^/]+)\/([^/]+)$/];
 
 	export async function initializeProviders(source: GithubSource): Promise<ResolvedProviderSource> {
-		// Fetch the manifest from GitHub and validate it
+		// Fetch the manifest (persisted + conditional when a store is configured).
 		const fetchOpts = createOptions(source);
-		const manifest = await githubFetchManifest(fetchOpts);
-		const modules = await fetchModuleFromGithub(fetchOpts, manifest.providers, source.moduleResolver);
+		const sourceKey = createSourceCacheKey(source);
+		const manifest = await loadManifest(fetchOpts, source, sourceKey);
+		// Drop providers the filter excludes before paying any fetch/eval cost.
+		const wanted = filterManifestProviders(manifest.providers, source.filter);
+		const modules = await fetchModuleFromGithub(fetchOpts, wanted, source, sourceKey);
 		const registry = new Map(Object.entries(modules));
 		const validations = validateProviderModules(registry);
 
@@ -74,14 +79,15 @@ export namespace GithubService {
 
 	export async function getManifest(source: GithubSource): Promise<ProvidersManifest> {
 		const fetchOpts = createOptions(source);
-		// Fetch the manifest from GitHub and validate it
+		// Refresh always wants the live manifest, so bypass the persisted copy here.
 		const manifest = await githubFetchManifest(fetchOpts);
 		return manifest;
 	}
 
 	export async function getModule([scheme, manifest]: [string, ProviderModuleManifest], source: GithubSource) {
 		const fetchOpts = createOptions(source);
-		const modules = await fetchModuleFromGithub(fetchOpts, { [scheme]: manifest }, source.moduleResolver);
+		const sourceKey = createSourceCacheKey(source);
+		const modules = await fetchModuleFromGithub(fetchOpts, { [scheme]: manifest }, source, sourceKey);
 		const registry = new Map(Object.entries(modules));
 		const validations = validateProviderModules(registry);
 
@@ -154,10 +160,9 @@ export namespace GithubService {
 		return opts.raw ? ((await res.text()) as T) : ((await res.json()) as T);
 	}
 
-	/** Fetch the raw manifest.json from a GitHub repo. */
-	async function githubFetchManifest(opts: GitHubFetchOptions): Promise<ProvidersManifest> {
+	/** Validate raw manifest.json text and promote it to an internal ProvidersManifest. */
+	function parseManifest(opts: GitHubFetchOptions, manifestText: string): ProvidersManifest {
 		try {
-			const manifestText = await fetchFileFromGitHub(opts, "manifest.json");
 			// The raw JSON has scheme only as a map key, not inside each entry — parse as ExternalProviderManifest.
 			const validated = validateProvidersManifest(JSON.parse(manifestText) as ExternalProviderManifest);
 			if (!validated.valid) {
@@ -177,6 +182,64 @@ export namespace GithubService {
 				details: error
 			});
 		}
+	}
+
+	/** Fetch the raw manifest.json from a GitHub repo. */
+	async function githubFetchManifest(opts: GitHubFetchOptions): Promise<ProvidersManifest> {
+		return parseManifest(opts, await fetchFileFromGitHub(opts, "manifest.json"));
+	}
+
+	/**
+	 * Manifest load with an optional persistent store. Sends a conditional
+	 * `If-None-Match`, reuses the persisted manifest on 304, and — when the network
+	 * is unreachable — falls back to the persisted copy so a warm start still works
+	 * offline. Without a store it is just {@link githubFetchManifest}.
+	 */
+	async function loadManifest(opts: GitHubFetchOptions, source: GithubSource, sourceKey: string): Promise<ProvidersManifest> {
+		const store = source.persistentStore;
+		if (!store) return githubFetchManifest(opts);
+
+		const stored = await ProviderStore.readManifest(store, sourceKey);
+		try {
+			const res = await fetchRawFileConditional(opts, "manifest.json", stored?.etag);
+			if (res.status === 304 && stored) return stored.manifest;
+
+			const manifest = parseManifest(opts, res.text);
+			await ProviderStore.writeManifest(store, sourceKey, { etag: res.etag, manifest });
+			return manifest;
+		} catch (error) {
+			if (stored) {
+				Logger.debug(`[GithubService] Manifest fetch failed, using persisted copy: ${error instanceof Error ? error.message : error}`);
+				return stored.manifest;
+			}
+			// No persisted fallback — take the full path (raw + REST fallback) so the error is faithful.
+			return githubFetchManifest(opts);
+		}
+	}
+
+	/**
+	 * Raw fetch that supports conditional requests. Returns `status: 304` (no body)
+	 * when the ETag still matches, otherwise the body and its new ETag. Throws on
+	 * other non-OK statuses like the unconditional fetch.
+	 */
+	async function fetchRawFileConditional(opts: GitHubFetchOptions, filePath: string, etag?: string): Promise<{ status: number; text: string; etag?: string }> {
+		const headers: Record<string, string> = { "User-Agent": "grabit-engine" };
+		if (opts.token) headers["Authorization"] = `Bearer ${opts.token}`;
+		if (etag) headers["If-None-Match"] = etag;
+
+		const url = `https://raw.githubusercontent.com/${opts.owner}/${opts.repo}/${opts.branch}/${opts.rootDir}${filePath}`;
+		const res = await appFetch(url, { headers, clean: true });
+		if (res.status === 304) return { status: 304, text: "", etag };
+		if (!res.ok) {
+			throw new HttpError({
+				code: "GITHUB_RAW_ERROR",
+				message: `GitHub raw request failed with status ${res.status}: ${res.statusText}`,
+				details: await res.text(),
+				statusCode: res.status,
+				expose: false
+			});
+		}
+		return { status: res.status, text: await res.text(), etag: res.headers?.get?.("etag") ?? undefined };
 	}
 
 	/**
@@ -220,10 +283,7 @@ export namespace GithubService {
 		try {
 			return await fetchRawFile(opts, filePath);
 		} catch (error) {
-			Logger.debug(
-				`[GithubService] Raw fetch failed for "${filePath}", falling back to the REST API: ` +
-					`${error instanceof Error ? error.message : error}`
-			);
+			Logger.debug(`[GithubService] Raw fetch failed for "${filePath}", falling back to the REST API: ` + `${error instanceof Error ? error.message : error}`);
 			const apiPath = `/repos/${opts.owner}/${opts.repo}/contents/${opts.rootDir}${filePath}?ref=${opts.branch}`;
 			return githubFetch<string>(apiPath, { token: opts.token, raw: true });
 		}
@@ -236,43 +296,53 @@ export namespace GithubService {
 	 * them one at a time made a cold start cost `providers × latency` before the manager
 	 * was usable. `modules` is keyed by distinct schemes, so concurrent writes are safe.
 	 *
-	 * @param opts             - GitHub repo + auth info
-	 * @param providers        - scheme → relative folder path (from manifest.json)
-	 * @param moduleResolver   - Optional callback to turn source code into a module.
-	 *                           If omitted a Node.js default (temp file + import) is used.
+	 * @param opts       - GitHub repo + auth info
+	 * @param providers  - scheme → relative folder path (from manifest.json)
+	 * @param source     - the GitHub source (resolver, persistent store, concurrency, yield)
+	 * @param sourceKey  - cache key identifying this source, for the persistent store
 	 * @returns scheme → resolved ProviderModule
 	 */
 	async function fetchModuleFromGithub(
 		opts: GitHubFetchOptions,
 		providers: Record<string, ProviderModuleManifest>,
-		moduleResolver?: (scheme: string, sourceCode: string) => Promise<ProviderModule>
+		source: GithubSource,
+		sourceKey: string
 	): Promise<Record<string, ProviderModule | null>> {
 		const modules: Record<string, ProviderModule | null> = {};
-		// Bounded so a large library stays polite to the raw.githubusercontent.com CDN.
-		const limit = pLimit({ concurrency: PROVIDER_FETCH_CONCURRENCY });
+		const moduleResolver = source.moduleResolver;
+		const store = source.persistentStore;
+		// Yield between compiles off-Node by default, so the UI thread can paint.
+		const yieldOnEval = source.yieldOnEval ?? !isNode();
+		// Bounded so a large library stays polite to the CDN and to device memory.
+		const limit = pLimit({ concurrency: source.concurrency ?? PROVIDER_FETCH_CONCURRENCY });
 
 		await Promise.all(
 			Object.entries(providers).map(([scheme, manifest]) =>
 				limit(async () => {
-					// Try index.js first, fall back to index.ts
-					let sourceCode: string;
+					// Reuse persisted source when the version still matches; only fetch on a miss.
+					let sourceCode: string | null = store ? await ProviderStore.readModuleSource(store, sourceKey, scheme, manifest.version) : null;
 					const fetchPath = `${pathJoin(manifest.dir, scheme)}/index.js`;
 					const fullApiUrl = `https://raw.githubusercontent.com/${opts.owner}/${opts.repo}/${opts.branch}/${opts.rootDir}${fetchPath}`;
-					try {
-						sourceCode = await fetchFileFromGitHub(opts, fetchPath);
-					} catch (error) {
-						Logger.error(
-							`[GithubService] Failed to fetch source for provider "${scheme}":\n` +
-								`  URL: ${fullApiUrl}\n` +
-								`  rootDir: "${opts.rootDir || "(none)"}"\n` +
-								`  manifest.dir: "${manifest.dir ?? "(none)"}"\n` +
-								`  Error: ${error instanceof Error ? error.message : error}`
-						);
-						modules[scheme] = null;
-						return; // Skip this provider but continue loading others
+					if (sourceCode == null) {
+						try {
+							sourceCode = await fetchFileFromGitHub(opts, fetchPath);
+							if (store) await ProviderStore.writeModuleSource(store, sourceKey, scheme, manifest.version, sourceCode);
+						} catch (error) {
+							Logger.error(
+								`[GithubService] Failed to fetch source for provider "${scheme}":\n` +
+									`  URL: ${fullApiUrl}\n` +
+									`  rootDir: "${opts.rootDir || "(none)"}"\n` +
+									`  manifest.dir: "${manifest.dir ?? "(none)"}"\n` +
+									`  Error: ${error instanceof Error ? error.message : error}`
+							);
+							modules[scheme] = null;
+							return; // Skip this provider but continue loading others
+						}
 					}
 
 					try {
+						// Give the event loop a turn before the synchronous compile below.
+						if (yieldOnEval) await scheduleYield();
 						if (moduleResolver) {
 							// User-provided resolver (for browsers / React Native)
 							modules[scheme] = normalizeResolvedProviderModule(await moduleResolver(scheme, sourceCode));

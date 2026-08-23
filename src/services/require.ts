@@ -1,7 +1,7 @@
 import { LocalSource, ProviderModule, ProvidersManifest } from "../types/index.ts";
 import { pathJoin } from "../utils/path.ts";
 import { validateProviderModules } from "../utils/validator.ts";
-import { toInternalManifest } from "../utils/standard.ts";
+import { toInternalManifest, filterManifestProviders } from "../utils/standard.ts";
 import { ResolvedProviderSource } from "../types/models/Manager.ts";
 import { PROVIDER_FETCH_CONCURRENCY } from "./github.ts";
 import pLimit from "p-limit";
@@ -12,11 +12,14 @@ export namespace RequireService {
 		if (!rootDir.endsWith("/")) rootDir += "/";
 		const registry = new Map<string, ProviderModule>();
 
+		// Skip providers the filter excludes before resolving anything.
+		const wanted = filterManifestProviders(source.manifest.providers, source.filter);
+
 		// Load each provider module using the provided resolver function.
 		// Resolvers may hit the filesystem or network, so run them concurrently.
-		const limit = pLimit({ concurrency: PROVIDER_FETCH_CONCURRENCY });
+		const limit = pLimit({ concurrency: source.concurrency ?? PROVIDER_FETCH_CONCURRENCY });
 		await Promise.all(
-			Object.entries(source.manifest.providers).map(([scheme, manifest]) =>
+			Object.entries(wanted).map(([scheme, manifest]) =>
 				limit(async () => {
 					const resolved = await source.resolve(pathJoin(rootDir, manifest.dir, scheme));
 					// Handle default exports (CommonJS / ESM interop)

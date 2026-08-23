@@ -5,6 +5,29 @@ import type { PuppeteerPoolConfig } from "./Puppeteer.ts";
 import { ProviderModule, ProviderModuleManifest } from "./Modules.ts";
 
 /**
+ * Persistent key/value store for provider bundles, so a remote source's fetched
+ * source survives app restarts instead of being re-downloaded every cold start.
+ * Matches the AsyncStorage / MMKV / localStorage shape; sync or async both work.
+ * Values are always strings — the engine serializes/parses JSON itself.
+ */
+export interface PersistentStore {
+	getItem(key: string): string | null | Promise<string | null>;
+	setItem(key: string, value: string): void | Promise<void>;
+	removeItem?(key: string): void | Promise<void>;
+}
+
+/**
+ * Narrows which providers a source loads, so a low-end device skips the fetch +
+ * eval cost of providers it will never use. An empty/omitted filter loads all.
+ */
+export interface ProviderFilter {
+	/** Only load these scheme identifiers. */
+	schemes?: string[];
+	/** Only load providers whose declared language(s) intersect this list (primary subtag, lowercased). */
+	languages?: string[];
+}
+
+/**
  * Provider Manager metadata and configuration types
  */
 export type ProvidersManifest = {
@@ -69,6 +92,26 @@ export type GithubSource = {
 	 * If omitted, falls back to a Node.js resolver (temp file + dynamic import).
 	 */
 	moduleResolver?: (scheme: string, sourceCode: string) => Promise<ProviderModule>;
+
+	/**
+	 * Persist fetched bundle source across restarts. Pass AsyncStorage / MMKV on
+	 * native; a warm start then skips the per-provider network round-trips and
+	 * reuses the persisted copy when the manifest is unreachable (offline).
+	 */
+	persistentStore?: PersistentStore;
+
+	/** Only load a subset of providers — skips fetch + eval for the rest. */
+	filter?: ProviderFilter;
+
+	/** Bundles fetched at once. Defaults to 6; lower it on low-end devices to cap memory. */
+	concurrency?: number;
+
+	/**
+	 * Yield to the event loop before each bundle eval so the JS thread can paint
+	 * between synchronous compiles. Defaults to `true` off-Node (native/browser),
+	 * `false` on Node where there is no UI thread to unblock.
+	 */
+	yieldOnEval?: boolean;
 };
 
 /**
@@ -86,6 +129,8 @@ export interface RegistrySource {
 	author?: string;
 	/** scheme → pre-imported ProviderModule */
 	providers: Record<string, ProviderModule>;
+	/** Only register a subset of providers. */
+	filter?: ProviderFilter;
 }
 
 /**
@@ -142,6 +187,12 @@ export interface LocalSource {
 	 * - Web / Vite:     `(p) => import(p)`
 	 */
 	resolve: (modulePath: string) => ProviderModule | Promise<ProviderModule>;
+
+	/** Only load a subset of providers from the manifest. */
+	filter?: ProviderFilter;
+
+	/** Providers resolved at once. Defaults to 6; lower it on low-end devices. */
+	concurrency?: number;
 }
 
 /**
@@ -212,6 +263,14 @@ export type ProviderManagerConfig = {
 	 * @default `15` (15 minutes) minimum is 5 minutes
 	 */
 	autoUpdateIntervalMinutes?: number;
+
+	/**
+	 * Run the background auto-update interval on native/browser runtimes too.
+	 * Off by default there, since a periodic manifest re-fetch and bundle re-eval
+	 * causes UI jank and battery drain on phones. On Node it always runs.
+	 * @default false
+	 */
+	autoUpdateOnNative?: boolean;
 
 	/**
 	 * Optional caching configuration for provider data.

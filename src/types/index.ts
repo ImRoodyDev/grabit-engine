@@ -5,7 +5,17 @@ export * from "./models/Puppeteer.ts";
 export * from "./models/Context.ts";
 export * from "./models/Xhr.ts";
 export * from "./models/Solver.ts";
-export { ProvidersManifest, ExternalProviderManifest, GithubSource, RegistrySource, LocalSource, ProviderSource, ProviderManagerConfig } from "./models/Manager.ts";
+export {
+	ProvidersManifest,
+	ExternalProviderManifest,
+	GithubSource,
+	RegistrySource,
+	LocalSource,
+	ProviderSource,
+	ProviderManagerConfig,
+	PersistentStore,
+	ProviderFilter
+} from "./models/Manager.ts";
 export * from "./models/Modules.ts";
 
 // Input and Output Types

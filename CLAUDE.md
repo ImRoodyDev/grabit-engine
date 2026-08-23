@@ -55,6 +55,13 @@ This is the highest-leverage thing to understand before editing exports or impor
 
 **Sources** (`src/services/`): `github.ts`, `registry.ts`, `require.ts` (local) each implement `initializeProviders(source)` returning `{ meta, providers, validations }`. Only GitHub is `isRemote` and supports auto-update/refresh.
 
+**Native cold-start performance** (all opt-in, all default to today's behavior):
+- **`source.filter: ProviderFilter`** (`{ schemes?, languages? }`) drops manifest entries *before* any fetch/eval via `filterManifestProviders` (`utils/standard.ts`). Applied by all three services; languages match on the primary subtag.
+- **`source.concurrency`** overrides the shared `PROVIDER_FETCH_CONCURRENCY` (6) on GitHub/local loads and on `refreshModules` — lower it to cap memory on low-end devices.
+- **GitHub `source.persistentStore: PersistentStore`** (AsyncStorage/MMKV shape) persists fetched bundle *source* (not the resolved module — it holds closures) keyed by `scheme@version`, plus the manifest + its ETag. `services/providerStore.ts` owns the keys and is fully try/catch-guarded (a broken store degrades to a network fetch). Warm start: conditional `If-None-Match` manifest fetch (304 → reuse), per-provider source reused on version match, and the persisted manifest is the offline fallback when the network is unreachable. This is separate from the in-memory `CACHE`, which never survives a process/app restart.
+- **GitHub `source.yieldOnEval`** (default `!isNode()`) awaits `scheduleYield()` before each synchronous bundle compile so the JS/UI thread paints between providers.
+- **`config.autoUpdateOnNative`** (default `false`) — the background auto-update interval is skipped off-Node unless set, since periodic re-fetch + re-eval janks the UI.
+
 **Provider context** (`ProviderContext`, passed to every worker as `ctx`): `xhr` (`core/xhr.ts` over `services/fetcher.ts`), `cheerio` (`core/cheerio.ts`), `puppeteer` (`core/puppeteer.ts`), `log`.
 
 - **xhr / fetcher**: per-host concurrency (`maxHostConcurrency`, default 10), 429 rate-limit back-off (`honorRateLimit`), and request coalescing (`coalesce`) are resolved from the provider `config.xhr` and default on. They are NOT per-fetch options (`ProviderFetchOptions` omits them). Provider-settable fetch options include `cookieJar`, `cacheTTL`, and `redirect`.

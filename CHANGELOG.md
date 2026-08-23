@@ -21,6 +21,12 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Native cold-start performance controls for loading providers, all opt-in and non-breaking:
+  - `GithubSource.persistentStore` (AsyncStorage/MMKV/localStorage shape) persists fetched bundle source across app restarts, keyed by `scheme@version`, so a warm start reuses the persisted copy instead of re-downloading every provider. The manifest is stored with its ETag and fetched conditionally (`If-None-Match` → 304 reuse), and the persisted manifest is the offline fallback when the network is unreachable. Backed by `services/providerStore.ts`, fully guarded so a broken store degrades to a normal fetch.
+  - `source.filter` (`{ schemes?, languages? }`) on every source — drops providers the app will never use *before* paying their fetch + eval cost.
+  - `source.concurrency` overrides the fixed 6-at-a-time bundle download on GitHub/local loads and `refreshModules`, to cap memory on low-end devices.
+  - `GithubSource.yieldOnEval` (default on off-Node) yields to the event loop before each synchronous bundle compile, so the UI thread paints between providers instead of blocking through the whole set.
+  - `config.autoUpdateOnNative` (default off) — the background auto-update interval no longer runs on native/browser unless enabled, avoiding periodic re-fetch + re-eval jank.
 - Puppeteer browser pooling, so Node scraping reuses warm processes instead of spawning a browser per request — `maxConcurrentBrowsers`, `minWarmBrowsers`, `idleBrowserTTL`, and `maxBrowserSessionTTL`, which auto-releases leaked tabs and always warns.
 - `scrapeConfig.waitForActiveProvidersAfterQuorum` — on quorum, still cancel queued providers but wait for ones already running.
 - `scrapeProvider(requester, scheme)` and `getAvailableProviders(type, requester)` hook callbacks, both on `UseSourcesReturn`.

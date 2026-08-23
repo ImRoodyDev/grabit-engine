@@ -3,7 +3,8 @@
 // cycle. isDevelopment now lives in ./env.ts and is re-exported below.
 import { HttpError } from "../types/HttpError.ts";
 import { ProcessError } from "../types/ProcessError.ts";
-import type { ExternalProviderManifest, ProvidersManifest } from "../types/models/Manager.ts";
+import type { ExternalProviderManifest, ProvidersManifest, ProviderFilter } from "../types/models/Manager.ts";
+import type { ProviderModuleManifest } from "../types/models/Modules.ts";
 import { extractSetCookies } from "./extractor.ts";
 import { Logger } from "./logger.ts";
 import type { Response } from "../services/fetcher.ts";
@@ -217,3 +218,32 @@ export function toInternalManifest(external: ExternalProviderManifest): Provider
 		)
 	};
 }
+
+/** Normalize a language tag to its primary subtag, lowercased (`en-US` → `en`). */
+const primaryLang = (lang: string): string => lang.split("-")[0]!.toLowerCase();
+
+/**
+ * Keep only the manifest entries a filter allows, so a source never fetches or
+ * evaluates providers the app will not use. An absent/empty filter keeps all.
+ */
+export function filterManifestProviders<T extends Pick<ProviderModuleManifest, "language">>(
+	providers: Record<string, T>,
+	filter?: ProviderFilter
+): Record<string, T> {
+	if (!filter || (!filter.schemes?.length && !filter.languages?.length)) return providers;
+
+	const wantSchemes = filter.schemes?.length ? new Set(filter.schemes) : null;
+	const wantLangs = filter.languages?.length ? new Set(filter.languages.map(primaryLang)) : null;
+
+	return Object.fromEntries(
+		Object.entries(providers).filter(([scheme, entry]) => {
+			if (wantSchemes && !wantSchemes.has(scheme)) return false;
+			if (!wantLangs) return true;
+			const langs = Array.isArray(entry.language) ? entry.language : [entry.language];
+			return langs.some((l) => wantLangs.has(primaryLang(l)));
+		})
+	);
+}
+
+/** Yield to the event loop once, letting a UI thread paint between sync compiles. */
+export const scheduleYield = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));

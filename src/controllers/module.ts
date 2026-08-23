@@ -5,7 +5,7 @@ import { RequireService } from "../services/require.ts";
 import { ProviderModule, ProcessError } from "../types/index.ts";
 import { ProviderManagerConfig, ResolvedProviderSource, ProvidersManifest } from "../types/models/Manager.ts";
 import { DebugLogger } from "../utils/logger.ts";
-import { isCustomError, isDevelopment, minutesToMilliseconds } from "../utils/standard.ts";
+import { isCustomError, isDevelopment, isNode, minutesToMilliseconds } from "../utils/standard.ts";
 import { CACHE, createSourceCacheKey, createHealthCacheKey } from "../services/cache.ts";
 import { countValidationMessages, formatValidationIssues } from "../utils/validator.ts";
 
@@ -55,6 +55,11 @@ export abstract class ModuleManager {
 	protected startAutoUpdateService() {
 		// Only start auto-update for remote sources
 		if (!this.isRemote) return;
+		// Off-Node the periodic re-fetch + re-eval causes UI jank, so it is opt-in there.
+		if (!isNode() && !this.config.autoUpdateOnNative) {
+			this.logger.info("Auto-update interval skipped on native/browser (set autoUpdateOnNative to enable)");
+			return;
+		}
 		const { autoUpdateIntervalMinutes = 15 } = this.config;
 		const msInterval = minutesToMilliseconds(Math.max(autoUpdateIntervalMinutes, 5)); // Minimum interval of 5 minutes to prevent excessive updates
 
@@ -180,7 +185,7 @@ export abstract class ModuleManager {
 			const outdated = Object.entries(newMeta.providers).filter(([scheme, mod]) => meta.providers[scheme]?.version !== mod.version);
 
 			// Download concurrently — each module is its own network round-trip
-			const limit = pLimit({ concurrency: PROVIDER_FETCH_CONCURRENCY });
+			const limit = pLimit({ concurrency: source.concurrency ?? PROVIDER_FETCH_CONCURRENCY });
 			const fetched = await Promise.all(
 				outdated.map(([scheme, mod]) => limit(async () => ({ scheme, mod, result: await GithubService.getModule([scheme, mod], source) })))
 			);
