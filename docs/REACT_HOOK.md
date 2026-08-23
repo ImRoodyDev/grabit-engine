@@ -110,6 +110,53 @@ stopContinuousScraping();
 
 <br />
 
+## 🔥 Pre-warming the manager on app start
+
+`useSources` (and `useManager`) create the `GrabitManager` singleton lazily on **first mount**. On the first navigation to a scraping screen, that means the provider modules are loaded right when the user is waiting — noticeable on low-end / native devices.
+
+To hide that cost, kick off manager creation at **app start** with the exported `acquireManager`. It returns the same shared, in-flight `create()` promise that the hooks reuse, so by the time the first screen mounts the modules are already loaded (or loading).
+
+```ts
+// App entry — e.g. index.js / App.tsx bootstrap, before rendering the tree.
+import { acquireManager } from "grabit-engine/react"; // or "grabit-engine" on browser/RN
+
+const managerConfig = {
+	source: {
+		/* ... */
+	},
+	tmdbApiKeys: ["your-tmdb-api-key"]
+};
+
+// Fire-and-forget: start loading providers now. The first `useSources`/`useManager`
+// render will join this same promise instead of starting a fresh load.
+acquireManager(managerConfig);
+```
+
+> **Reference counting:** every `acquireManager()` registers a consumer and **must** be balanced by a `releaseManager()`, otherwise the singleton is kept alive for the whole process lifetime. For an app-start pre-warm that is usually exactly what you want (hold one reference for the app's lifetime). If you ever need to tear it down explicitly, call `releaseManager()` once. Because it is a singleton, passing `managerConfig` to `acquireManager` and later to `useSources` is safe — the config from the first call wins and subsequent calls reuse the instance.
+
+### `useManager` (low-level)
+
+If you want the manager instance without the scraping state machine (`useScraper`), consume `useManager` directly. It handles the singleton lifecycle (create on first mount, destroy on last unmount) and is StrictMode-safe:
+
+```tsx
+import { useManager } from "grabit-engine/react";
+
+function MyComponent() {
+	const { manager, isInitializing, initError } = useManager(managerConfig);
+	// manager is null until ready; call manager.getStreams(...) yourself.
+}
+```
+
+| Export             | Signature                                              | Description                                                                     |
+| ------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| `useManager`       | `(config) => { manager, isInitializing, initError }`   | Hook: create/reuse the singleton, destroy on last unmount.                      |
+| `acquireManager`   | `(config) => Promise<GrabitManager>`                   | Register a consumer and start creation. Use to pre-warm on app start.           |
+| `releaseManager`   | `() => void`                                           | Release one consumer reference. Destroys the singleton when the last releases.  |
+
+---
+
+<br />
+
 ## 🧪 Testing
 
 ```bash

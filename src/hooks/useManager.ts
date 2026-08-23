@@ -19,7 +19,28 @@ let consumerCount = 0;
 /** Shared so concurrent mounts await one initialization instead of racing several. */
 let sharedManager: Promise<GrabitManager> | null = null;
 
-function acquireManager(config: ProviderManagerConfig): Promise<GrabitManager> {
+/**
+ * Acquire (creating on first call) the shared {@link GrabitManager} singleton and
+ * register the caller as a consumer.
+ *
+ * Exported so an application can **pre-warm** the manager at startup — before any
+ * React screen mounts — so the first `useSources` / `useManager` render finds the
+ * provider modules already loaded (or in-flight) instead of paying the load cost on
+ * the first navigation. Concurrent callers join one in-flight `create()` promise.
+ *
+ * Every `acquireManager()` **must** be balanced by a later {@link releaseManager}
+ * call, or the manager is kept alive for the process lifetime. That is exactly what
+ * you want for an app-start pre-warm (hold one reference for the whole app lifecycle);
+ * just remember the pairing if you acquire it for a scoped task.
+ *
+ * @example
+ * ```ts
+ * // App entry (e.g. index.js / App bootstrap), before rendering the tree:
+ * import { acquireManager } from "grabit-engine/react";
+ * acquireManager({ source: mySource, tmdbApiKeys: [KEY] }); // fire-and-forget pre-warm
+ * ```
+ */
+export function acquireManager(config: ProviderManagerConfig): Promise<GrabitManager> {
 	consumerCount++;
 	sharedManager ??= GrabitManager.create(config).catch((error: unknown) => {
 		// Never leave a rejected promise cached — the next mount should be free to retry.
@@ -29,7 +50,13 @@ function acquireManager(config: ProviderManagerConfig): Promise<GrabitManager> {
 	return sharedManager;
 }
 
-function releaseManager(): void {
+/**
+ * Release one consumer reference obtained via {@link acquireManager}. When the last
+ * consumer releases, the singleton is destroyed (after its init settles). Safe to call
+ * even while the manager is still initializing. Call this to undo an app-start pre-warm
+ * if you ever want to tear the manager down explicitly.
+ */
+export function releaseManager(): void {
 	consumerCount = Math.max(0, consumerCount - 1);
 	if (consumerCount > 0) return;
 

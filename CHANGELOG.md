@@ -24,6 +24,7 @@ The format is based on Keep a Changelog.
 - Puppeteer browser pooling, so Node scraping reuses warm processes instead of spawning a browser per request — `maxConcurrentBrowsers`, `minWarmBrowsers`, `idleBrowserTTL`, and `maxBrowserSessionTTL`, which auto-releases leaked tabs and always warns.
 - `scrapeConfig.waitForActiveProvidersAfterQuorum` — on quorum, still cancel queued providers but wait for ones already running.
 - `scrapeProvider(requester, scheme)` and `getAvailableProviders(type, requester)` hook callbacks, both on `UseSourcesReturn`.
+- Exported the manager lifecycle primitives `useManager`, `acquireManager`, and `releaseManager` (from `grabit-engine/react`, and the browser/native barrels). `acquireManager(config)` lets an app pre-warm the `GrabitManager` singleton at startup so the first scraping screen finds providers already loaded instead of paying the load cost on first navigation.
 - Guaranteed `meta.scheme` on every loaded `ProviderModule`, injected from the registry key by all three source services.
 - A dedicated React Native entry point and RN-safe type barrel.
 - `setupGrabitGlobals({ base64 })` to install `atob`/`btoa` where the runtime lacks them.

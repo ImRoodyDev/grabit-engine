@@ -8,6 +8,13 @@ import type { MediaSource } from "../types/output/MediaSources.ts";
 
 export type { UseSourcesConfig, UseSourcesReturn, ScrapeType } from "../types/hooks/useSources.ts";
 
+// Manager lifecycle primitives — exported so applications can drive the singleton
+// directly (e.g. pre-warm it on app start via `acquireManager`, or consume it in a
+// custom hook via `useManager`) instead of only through `useSources`.
+export { useManager, acquireManager, releaseManager } from "./useManager.ts";
+// Config type consumers need to call `acquireManager` / `useManager`.
+export type { ProviderManagerConfig } from "../types/models/Manager.ts";
+
 /**
  * React hook that wraps `GrabitManager` for declarative
  * media & subtitle scraping inside React / React Native components.

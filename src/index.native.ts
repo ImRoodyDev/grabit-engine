@@ -24,6 +24,9 @@ export { setChallengeSolver } from "./core/solver.ts";
 
 // React hooks (optional — requires React as a peer dependency)
 export { useSources } from "./hooks/useSources.ts";
+// Manager lifecycle primitives — for pre-warming the singleton on app start
+// (`acquireManager`/`releaseManager`) or building a custom hook (`useManager`).
+export { useManager, acquireManager, releaseManager } from "./hooks/useManager.ts";
 export * from "./types/hooks/useSources.ts";
 
 // Important utilities
