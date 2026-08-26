@@ -4,6 +4,7 @@
   "main": "index.ts",
   "dependencies": {
     "@craftzdog/react-native-buffer": "^6.1.2",
+    "@preeternal/react-native-cookie-manager": "^6.4.0",
     "expo": "~57.0.7",
     "expo-status-bar": "~57.0.1",
     "expo-video": "~57.0.1",
@@ -12,7 +13,8 @@
     "react-native": "0.86.0",
     "react-native-nitro-modules": "^0.36.1",
     "react-native-quick-crypto": "^0.7.17",
-    "react-native-safe-area-context": "~5.7.0"
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-webview": "13.16.1"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",

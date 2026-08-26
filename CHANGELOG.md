@@ -34,6 +34,7 @@ The format is based on Keep a Changelog.
 - Guaranteed `meta.scheme` on every loaded `ProviderModule`, injected from the registry key by all three source services.
 - A dedicated React Native entry point and RN-safe type barrel.
 - `setupGrabitGlobals({ base64 })` to install `atob`/`btoa` where the runtime lacks them.
+- `setupGrabitGlobals({ env })` exposes host-supplied values to provider bundles as `globalThis.__grabitEnv`. Bundles are eval'd with `new Function` outside the Metro/Babel graph, so `process.env` is never inlined and stays empty at runtime on React Native — providers that need a key (e.g. `wyziesubs`) read it from `__grabitEnv` instead. Keys are merged onto any existing `__grabitEnv`, and the report now includes an `env` boolean.
 - A Hermes downlevel pass in `bundle-provider`, applied to the finished bundle so inlined dependencies are lowered too. The plugin set is deliberately narrow — `hermesc` from RN 0.79 rejects only `class` and async arrow functions.
 - Timestamped per-dispatch debug logging, which makes concurrent execution legible when `concurrentOperations > 1`.
 

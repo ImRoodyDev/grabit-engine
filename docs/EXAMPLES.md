@@ -9,8 +9,14 @@ import QuickCrypto from "react-native-quick-crypto";
 import { Buffer } from "@craftzdog/react-native-buffer";
 import base64 from "base-64";
 
-// Register crypto/Buffer/base64 for provider bundles before creating the manager.
-setupGrabitGlobals({ crypto: QuickCrypto, buffer: Buffer, base64 });
+// Register crypto/Buffer/base64 (and any provider env) before creating the manager.
+setupGrabitGlobals({
+	crypto: QuickCrypto,
+	buffer: Buffer,
+	base64,
+	// Keys providers read from globalThis.__grabitEnv; EXPO_PUBLIC_* so Metro inlines it.
+	env: { WYZIE_SUBS_KEYS: process.env.EXPO_PUBLIC_WYZIE_SUBS_KEYS },
+});
 
 const manager = await GrabitManager.create({
 	source: {

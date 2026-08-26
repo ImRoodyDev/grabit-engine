@@ -13,6 +13,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { useSources, type MediaSource } from 'grabit-engine';
 
 import { GLOBALS } from './src/globals';
+import ChallengeSolverHost from './src/challenge/ChallengeSolverHost';
 import { PlayerModal } from './src/components/PlayerModal';
 import { buildRequest, DEFAULT_FORM, GRABIT_MANAGER_CONFIG, HAS_TMDB_KEY, type FormState } from './src/config';
 import { useResponsive } from './src/useResponsive';
@@ -117,6 +118,8 @@ export default function App() {
 
 	return (
 		<SafeAreaProvider>
+			{/* Hidden WebView challenge solver — behind the app, native only (null on web). */}
+			<ChallengeSolverHost />
 			<SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
 				<StatusBar barStyle="light-content" hidden={isTV} />
 				<KeyboardAvoidingView

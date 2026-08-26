@@ -639,6 +639,7 @@ Helpers for loading the `github` source outside Node. Exported from the package 
 | `crypto` | `unknown`            | Crypto implementation, exposed as `globalThis.__grabitCrypto`. In RN: `require("react-native-quick-crypto")`. Optional.                                                                                    |
 | `buffer` | `unknown`            | Buffer implementation, exposed as `globalThis.Buffer`. In RN: `require("@craftzdog/react-native-buffer").Buffer`. Optional but required for providers that decode binary data — RN has no global `Buffer`. |
 | `base64` | `{ encode, decode }` | base64 codec used to polyfill `globalThis.btoa` / `globalThis.atob` on runtimes that lack them (RN < 0.74). In RN: `require("base-64")`. Ignored when the runtime already provides both.                   |
+| `env`    | `Record<string, string \| undefined>` | Env values for provider bundles, exposed as `globalThis.__grabitEnv`. Provider bundles are eval'd outside the Metro graph so `process.env` stays empty — providers that need a key read `__grabitEnv` instead. In RN, source the values from `EXPO_PUBLIC_`-prefixed vars so Metro inlines them. Merged onto any existing `__grabitEnv`. Never put a truly-secret value here — client bundles are readable by users. Optional. |
 
 **`GrabitGlobalsReport`**
 
@@ -646,6 +647,7 @@ Helpers for loading the `github` source outside Node. Exported from the package 
 | --------------------- | ---------- | ----------------------------------------------------------------------- |
 | `crypto`              | `boolean`  | `globalThis.__grabitCrypto` is set.                                     |
 | `buffer`              | `boolean`  | `globalThis.Buffer` is set.                                             |
+| `env`                 | `boolean`  | `globalThis.__grabitEnv` is set.                                        |
 | `atob`                | `boolean`  | `atob` exists globally (RN ≥ 0.74 provides it).                         |
 | `functionConstructor` | `boolean`  | The `Function` constructor works — the GitHub-source model requires it. |
 | `errors`              | `string[]` | Assignment failures, one per failed global.                             |
@@ -656,7 +658,13 @@ import QuickCrypto from "react-native-quick-crypto";
 import { Buffer } from "@craftzdog/react-native-buffer";
 import base64 from "base-64";
 
-setupGrabitGlobals({ crypto: QuickCrypto, buffer: Buffer, base64 });
+setupGrabitGlobals({
+	crypto: QuickCrypto,
+	buffer: Buffer,
+	base64,
+	// Exposed as globalThis.__grabitEnv; providers read keys from here, not process.env.
+	env: { WYZIE_SUBS_KEYS: process.env.EXPO_PUBLIC_WYZIE_SUBS_KEYS },
+});
 
 const manager = await GrabitManager.create({
 	source: { type: "github", url: "owner/repo", branch: "main", moduleResolver },

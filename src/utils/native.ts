@@ -79,6 +79,26 @@ export interface GrabitGlobalsOptions {
 	 * Ignored when the runtime already provides both.
 	 */
 	base64?: { encode: (s: string) => string; decode: (s: string) => string };
+	/**
+	 * Environment values for provider bundles, exposed as `globalThis.__grabitEnv`.
+	 *
+	 * Provider bundles are fetched and evaluated with `new Function` outside the
+	 * Metro/Babel graph, so `process.env` is never inlined and stays empty at
+	 * runtime on React Native. Providers that need a secret (e.g. an API key) read
+	 * it from `globalThis.__grabitEnv` instead, and this is how the host app
+	 * supplies it. On React Native the values must come from your app's own source
+	 * so Metro inlines them — use an `EXPO_PUBLIC_`-prefixed var:
+	 *
+	 * ```ts
+	 * setupGrabitGlobals({ env: { WYZIE_SUBS_KEYS: process.env.EXPO_PUBLIC_WYZIE_SUBS_KEYS } });
+	 * ```
+	 *
+	 * Note: anything shipped to a client is readable by users — never put a secret
+	 * here that must stay private; proxy those through a backend instead. Unlike the
+	 * other globals, provided keys are merged into any existing `__grabitEnv` (the
+	 * host app is the authority for env), so repeated calls accumulate.
+	 */
+	env?: Record<string, string | undefined>;
 }
 
 /** Result of {@link setupGrabitGlobals} — a readout of what is available. */
@@ -87,6 +107,8 @@ export interface GrabitGlobalsReport {
 	crypto: boolean;
 	/** `globalThis.Buffer` is set. */
 	buffer: boolean;
+	/** `globalThis.__grabitEnv` is set (an `env` bag was provided or already existed). */
+	env: boolean;
 	/** `atob` exists globally (needed to decode base64; RN >= 0.74 provides it). */
 	atob: boolean;
 	/** The `Function` constructor works — the whole GitHub-source model needs it. */
@@ -107,7 +129,13 @@ export interface GrabitGlobalsReport {
  * import { Buffer } from "@craftzdog/react-native-buffer";
  * import base64 from "base-64";
  *
- * const report = setupGrabitGlobals({ crypto: QuickCrypto, buffer: Buffer, base64 });
+ * const report = setupGrabitGlobals({
+ *   crypto: QuickCrypto,
+ *   buffer: Buffer,
+ *   base64,
+ *   // Values providers read from globalThis.__grabitEnv (process.env is empty in bundles).
+ *   env: { WYZIE_SUBS_KEYS: process.env.EXPO_PUBLIC_WYZIE_SUBS_KEYS },
+ * });
  * if (!report.functionConstructor) {
  *   // Runtime cannot evaluate provider bundles (e.g. eval-restricted engine).
  * }
@@ -134,6 +162,18 @@ export function setupGrabitGlobals(options: GrabitGlobalsOptions = {}): GrabitGl
 	const crypto = assign("__grabitCrypto", options.crypto);
 	const buffer = assign("Buffer", options.buffer);
 
+	// Env is a value bag the host builds up, not a one-shot polyfill: merge
+	// provided keys onto any existing __grabitEnv rather than assign-once.
+	if (options.env) {
+		try {
+			const existing = (target.__grabitEnv as Record<string, string | undefined>) ?? {};
+			target.__grabitEnv = { ...existing, ...options.env };
+		} catch (error) {
+			errors.push(`__grabitEnv: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+	const env = typeof target.__grabitEnv !== "undefined";
+
 	// Providers decode base64 payloads; RN < 0.74 ships neither btoa nor atob.
 	if (options.base64) {
 		assign("btoa", options.base64.encode);
@@ -150,6 +190,7 @@ export function setupGrabitGlobals(options: GrabitGlobalsOptions = {}): GrabitGl
 	return {
 		crypto,
 		buffer,
+		env,
 		atob: typeof (globalThis as { atob?: unknown }).atob === "function",
 		functionConstructor,
 		errors
