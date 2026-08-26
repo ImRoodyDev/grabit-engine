@@ -80,8 +80,10 @@ The configuration object passed to `GrabitManager.create(config)`.
 | `strict`                                         | `boolean`        | ❌       | `false`     | Throw on validation errors instead of warning.                                                                                                                                 |
 | `lazy`                                           | `boolean`        | ❌       | `false`     | Dispatch stream requests to providers' `getLazyStreams` workers and return lazy handles.                                                                                       |
 | `lazyFallbackToStreams`                          | `boolean`        | ❌       | `true`      | In lazy mode, use `getStreams` when a provider does not implement `getLazyStreams`. Set `false` for strict lazy mode (only `getLazyStreams` providers participate).            |
+| `proxy`                                          | `ProxyConfig`    | ❌       | —           | Default proxy applied to provider requests when a scrape request does not supply its own `proxy`. Host-configured — providers never set this. Same shape as `ScrapeRequester.proxy`. |
 | `autoInit`                                       | `boolean`        | ❌       | —           | Auto-initialize providers on load.                                                                                                                                             |
 | `autoUpdateIntervalMinutes`                      | `number`         | ❌       | `15`        | Interval (in minutes) for auto-updating providers from remote sources. Minimum is 5. **Only applies to remote sources.**                                                       |
+| `autoUpdateOnNative`                             | `boolean`        | ❌       | `false`     | Run the background auto-update interval on native/browser runtimes too. Off there by default (periodic re-fetch + bundle re-eval causes UI jank and battery drain); always runs on Node. |
 | `cache`                                          | `object`         | ❌       | —           | Caching configuration. See below.                                                                                                                                              |
 | `cache.enabled`                                  | `boolean`        | ✅       | `false`     | Whether to enable caching of provider data.                                                                                                                                    |
 | `cache.TTL`                                      | `number`         | ✅       | `0`         | Cache expiration TTL in milliseconds for scraped data.                                                                                                                         |
@@ -120,6 +122,10 @@ Fetches providers from a GitHub repository. Works in Node 18+, browsers, and Rea
 | `rootDir`        | `string`                                                          | ❌       | `"/"`    | Root directory for the repository (e.g. `"dist"`).                                                                               |
 | `token`          | `string`                                                          | ❌       | —        | Auth token for private repos.                                                                                                    |
 | `moduleResolver` | `(scheme: string, sourceCode: string) => Promise<ProviderModule>` | ❌       | —        | Custom resolver that converts fetched source into a module. Required in browser/React Native; Node falls back to dynamic import. |
+| `persistentStore` | `PersistentStore`                                               | ❌       | —        | Persists fetched bundle source across app restarts (AsyncStorage / MMKV / `localStorage` shape). A warm start reuses the persisted copy instead of re-downloading, and it is the offline fallback when the manifest is unreachable. |
+| `filter`         | `ProviderFilter`                                                 | ❌       | —        | Load only a subset (`{ schemes?, languages? }`), skipping the fetch + eval cost of the rest. |
+| `concurrency`    | `number`                                                         | ❌       | `6`      | How many bundles are fetched at once. Lower it on low-end devices to cap memory. |
+| `yieldOnEval`    | `boolean`                                                        | ❌       | `true` off-Node, `false` on Node | Yield to the event loop before each synchronous bundle compile so the UI thread can paint between providers. |
 
 ```typescript
 // React Native example
@@ -149,6 +155,7 @@ Providers are passed as pre-imported modules. Works in any JS runtime.
 | `name`      | `string`                         | ✅       | Library name.                                 |
 | `author`    | `string`                         | ❌       | Author name.                                  |
 | `providers` | `Record<string, ProviderModule>` | ✅       | Map of scheme → pre-imported provider module. |
+| `filter`    | `ProviderFilter`                 | ❌       | Register only a subset (`{ schemes?, languages? }`).   |
 
 ```typescript
 import myProvider from "./providers/my-provider";
@@ -170,9 +177,11 @@ Auto-imports providers from a manifest using a user-supplied resolve function. W
 | Field      | Type                                                                | Required | Default | Description                                                                                                                          |
 | ---------- | ------------------------------------------------------------------- | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `type`     | `"local"`                                                           | ✅       | —       | Source discriminant.                                                                                                                 |
-| `manifest` | `ProvidersManifest`                                                 | ✅       | —       | The manifest object — import or require it yourself.                                                                                 |
+| `manifest` | `ExternalProviderManifest`                                          | ✅       | —       | The manifest object — import or require it yourself. Typed as `ExternalProviderManifest` (scheme lives only as the map key); the engine promotes it to `ProvidersManifest` internally. |
 | `rootDir`  | `string`                                                            | ❌       | `"./"`  | Base directory prepended to every provider path in the manifest. Trailing slash added automatically.                                 |
 | `resolve`  | `(modulePath: string) => ProviderModule \| Promise<ProviderModule>` | ✅       | —       | Module resolver called for each provider with the full path. Must return the `ProviderModule` (or a module whose `.default` is one). |
+| `filter`   | `ProviderFilter`                                                    | ❌       | —       | Load only a subset (`{ schemes?, languages? }`) from the manifest.                                                                    |
+| `concurrency` | `number`                                                         | ❌       | `6`     | How many providers are resolved at once. Lower it on low-end devices.                                                                 |
 
 ```typescript
 // Node.js
@@ -186,6 +195,25 @@ const manager = await GrabitManager.create({
 	tmdbApiKeys: ["your-tmdb-key"]
 });
 ```
+
+#### `ProviderFilter`
+
+Narrows which providers a source loads, so a device skips the fetch + eval cost of providers it will never use. An empty/omitted filter loads all. Accepted by all three sources.
+
+| Field       | Type       | Required | Description                                                                                 |
+| ----------- | ---------- | -------- | ------------------------------------------------------------------------------------------- |
+| `schemes`   | `string[]` | ❌       | Only load these scheme identifiers.                                                         |
+| `languages` | `string[]` | ❌       | Only load providers whose declared language(s) intersect this list (primary subtag, lowercased). |
+
+#### `PersistentStore`
+
+Key/value store (`GithubSource.persistentStore`) that survives app restarts, matching the AsyncStorage / MMKV / `localStorage` shape. Sync or async both work; values are always strings (the engine serializes JSON itself).
+
+| Method                       | Type                                          | Required | Description                       |
+| ---------------------------- | --------------------------------------------- | -------- | --------------------------------- |
+| `getItem(key)`               | `(string) => string \| null \| Promise<...>`  | ✅       | Read a stored value.              |
+| `setItem(key, value)`        | `(string, string) => void \| Promise<void>`   | ✅       | Write a value.                    |
+| `removeItem(key)`            | `(string) => void \| Promise<void>`           | ❌       | Delete a value.                   |
 
 ### `ProvidersManifest`
 
@@ -224,6 +252,10 @@ The request object accepted by the manager's `getStreams()` and `getSubtitles()`
 | `userAgent`         | `string`                                                       | ❌       | Custom user-agent string for requests.                                                                                                                                                                  |
 | `proxy`             | `ProxyConfig` (`{ agent, auth? }` or `{ resolver, headers? }`) | ❌       | Optional proxy — a proxy agent, or a URL resolver that rewrites requests to a proxy endpoint. See [Configuration → Proxy](CONFIGURATION.md#proxy).                                                      |
 | `userIP`            | `string`                                                       | ❌       | Optional user IP address of the requester.                                                                                                                                                              |
+| `signal`            | `AbortSignal`                                                  | ❌       | Set by the manager per scrape and forwarded to `ctx.xhr`, so cancelling an operation aborts in-flight provider requests. Not something you normally set yourself.                                        |
+| `fetchControls`     | `TProviderFetchControls`                                       | ❌       | Per-host concurrency / rate-limit / coalescing defaults, resolved from the provider config and applied to every `ctx.xhr` call. Manager-populated.                                                       |
+
+> **Note:** The public input you pass to `getStreams` / `getSubtitles` is a `RawScrapeRequester` — the same shape but with a partial `media` (only the [minimum required fields](#minimum-required-fields)) and without `signal` / `fetchControls`. The manager enriches it into the full `ScrapeRequester` (shown above) that reaches provider handlers.
 
 ### Examples
 
@@ -316,6 +348,7 @@ The context object passed as the second argument to every `getStreams` / `getSub
 | `cheerio.$load`       | `(html: string) => CheerioAPI`                         | ✅       | Direct access to `cheerio.load` for parsing raw HTML strings you already have, without making an HTTP request.                                                                                                                                                     |
 | `cheerio.load`        | `(url, requester, xhrCtx) => Promise<{ $, response }>` | ✅       | Fetches a page and loads it into Cheerio for DOM traversal. Mimics a real browser request with appropriate headers.                                                                                                                                                |
 | `cheerio.sortResults` | `($page, selectors, requester) => Promise<Result[]>`   | ✅       | Scores and sorts search result elements by similarity to the requester's media (title, year, duration). Score range: 0–170 for movies/series, 0–100 for channels.                                                                                                  |
+| `solveChallenge`      | `(url, requester, options?) => Promise<ChallengeSolveResult>` | ✅ | Solves a Cloudflare / anti-bot interstitial. Uses a host-injected solver when set (an RN hidden WebView or FlareSolverr), otherwise the Node puppeteer pool. Returns the earned html + cookies + user-agent; reuse those on the next `xhr` hops. Stays environment-universal, unlike `puppeteer`. |
 | `puppeteer.launch`    | `(url, request) => Promise<{ browser, page }>`         | ✅       | **Node.js only.** Acquires a tab from a manager-owned real browser pool backed by `puppeteer-real-browser`. Handles Cloudflare challenges automatically. Use `browsingOptions.ignoreError` to continue when `page.goto(...)` returns a non-OK or missing response. |
 | `log`                 | `DebugLogger`                                          | ✅       | Scoped debug logger bound to this provider's scheme. Provides `.info()`, `.warn()`, `.error()`, and `.debug()` methods. Output respects the manager's `debug` flag — always on in the `test-provider` CLI.                                                         |
 
@@ -342,12 +375,15 @@ Request shape accepted by `ctx.puppeteer.launch(url, request)`.
 
 Options accepted by `ctx.xhr.fetch` / `ctx.xhr.fetchResponse` / `ctx.xhr.status`.
 
-| Field             | Type      | Required | Default | Description                                                |
-| ----------------- | --------- | -------- | ------- | ---------------------------------------------------------- |
-| `attachUserAgent` | `boolean` | ❌       | `false` | Attach the requester's `User-Agent` header to the request. |
+| Field             | Type      | Required | Default | Description                                                                                                                                                            |
+| ----------------- | --------- | -------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `attachUserAgent` | `boolean` | ❌       | `false` | Attach the requester's `User-Agent` header to the request.                                                                                                            |
+| `clean`           | `boolean` | ❌       | `false` | Send with no default headers. Normally the engine adds `Content-Type: application/json` and `Accept: application/json`; set `clean` to use only the headers you pass. |
 
-> The requester's proxy (if any) is always applied — providers can't opt out. Also accepts all
-> fields from `RequestInit`, `RequestRetryInit`, and `RequestTimeoutInit`.
+> The requester's proxy (if any) is always applied — providers can't opt out. The engine-owned
+> keys `agent`, `proxy`, `maxHostConcurrency`, `honorRateLimit`, and `coalesce` are stripped —
+> they are resolved from the provider config, not set per call. Otherwise accepts all fields from
+> `RequestInit`, `RequestRetryInit`, and `RequestTimeoutInit`.
 
 ---
 
@@ -409,41 +445,86 @@ Base fields shared by `MovieMedia` and `SerieMedia`.
 
 Base interface extended by `MediaSource` and `SubtitleSource`.
 
-| Field                | Type                     | Required | Description                            |
-| -------------------- | ------------------------ | -------- | -------------------------------------- |
-| `scheme`             | `string`                 | ✅       | Provider scheme identifier.            |
-| `providerName`       | `string`                 | ✅       | Human-readable provider name.          |
-| `language`           | `string`                 | ✅       | ISO language code.                     |
-| `format`             | `T`                      | ✅       | Media or subtitle format string.       |
-| `xhr.haveCorsPolicy` | `boolean`                | ✅       | Whether the source has a CORS policy.  |
-| `xhr.headers`        | `Record<string, string>` | ✅       | Required request headers for playback. |
+| Field          | Type                     | Required | Description                                                                       |
+| -------------- | ------------------------ | -------- | --------------------------------------------------------------------------------- |
+| `scheme`       | `string`                 | ✅       | Provider scheme identifier.                                                       |
+| `providerName` | `string`                 | ✅       | Human-readable provider name.                                                     |
+| `language`     | `string`                 | ✅       | ISO language code.                                                                |
+| `format`       | `T`                      | ✅       | Media or subtitle format string.                                                 |
+| `fileName`     | `string`                 | ✅       | Display file name.                                                                |
+| `xhr.flags`    | `SourceFlag[]`           | ✅       | Playback/consumption constraints the host acts on. See [`SourceFlag`](#sourceflag). |
+| `xhr.headers`  | `Record<string, string>` | ✅       | Required request headers for playback.                                            |
+
+> **Migration:** the old `xhr.haveCorsPolicy: boolean` was replaced by `xhr.flags: SourceFlag[]`. A CORS-blocked source now sets `flags: ["CORS_BLOCKED"]` instead of `haveCorsPolicy: true`.
+
+#### `SourceFlag`
+
+A string union of consumption hints a provider attaches to a resolved source, telling the host how the URL may be played.
+
+| Value             | Meaning                                                          |
+| ----------------- | --------------------------------------------------------------- |
+| `"CORS_BLOCKED"`  | Direct browser fetch blocked by CORS; route via a proxy.        |
+| `"IP_LOCKED"`     | URL bound to the scraper IP; play from the same IP/proxy.       |
+| `"GEO_BLOCKED"`   | Region-restricted origin.                                       |
+| `"REFERER_LOCKED"`| Needs the `Referer` from `xhr.headers` to play.                 |
+| `"PROXY_ONLY"`    | Only playable through a proxy.                                  |
+| `"EXTERNAL"`      | Hand off to an external player/browser.                         |
 
 ### `MediaSource`
 
-Extends `SourceProvider<"m3u8" | "dash" | "mp4" | "webm" | "mkv" | "flv" | "avi" | "mov">`.
+A resolved-or-lazy union: `ResolvedMediaSource | LazyMediaSource`. Both extend `SourceProvider<MediaFormat>` (so they carry `scheme`, `providerName`, `language`, `format`, `fileName`, `xhr`). Discriminate with `source.lazy` — truthy means lazy, otherwise the source has a `playlist`.
 
-| Field      | Type                        | Required | Description                                                    |
-| ---------- | --------------------------- | -------- | -------------------------------------------------------------- |
-| `fileName` | `string`                    | ✅       | Display file name.                                             |
-| `playlist` | `string \| PlaylistEntry[]` | ✅       | Direct URL or an array of bandwidth/resolution/source entries. |
+`MediaFormat` = `"m3u8" | "dash" | "mp4" | "webm" | "mkv" | "flv" | "avi" | "mov"`.
+
+**`ResolvedMediaSource`** — fully playable now:
+
+| Field      | Type            | Required | Description                                                         |
+| ---------- | --------------- | -------- | ------------------------------------------------------------------- |
+| `playlist` | `MediaPlaylist` | ✅       | Adaptive variants, or a single playlist/file URL.                  |
+| `lazy`     | `never`         | —        | Absent on a resolved source.                                       |
+
+**`LazyMediaSource`** — resolved on play (see [`getLazyStreams` / lazy mode](#grabitmanager)):
+
+| Field      | Type         | Required | Description                                                                    |
+| ---------- | ------------ | -------- | ----------------------------------------------------------------------------- |
+| `lazy`     | `LazySource` | ✅       | Unresolved handle. The host calls `resolveLazySource(scheme, lazy.id, req)`.  |
+| `playlist` | `never`      | —        | Absent until resolved.                                                        |
+
+**`MediaPlaylist`** = `string` (single URL) **or** an array of variant objects:
+
+| Field        | Type                    | Description                                     |
+| ------------ | ----------------------- | ----------------------------------------------- |
+| `bandwidth`  | `number`                | Variant bandwidth in bits/s.                    |
+| `dimensions` | `` `${number}x${number}` `` | Pixel dimensions, e.g. `"1920x1080"`.       |
+| `resolution` | `` `${number}p` `` \| `string` | Resolution label, e.g. `"1080p"`.        |
+| `source`     | `string`                | Variant URL.                                    |
+
+**`LazySource`**
+
+| Field   | Type     | Required | Description                                                              |
+| ------- | -------- | -------- | ----------------------------------------------------------------------- |
+| `id`    | `string` | ✅       | Opaque handle passed back to the provider's `resolveLazy(id, ctx)`.     |
+| `label` | `string` | ❌       | Optional human-readable label (e.g. a server name) shown before resolve. |
 
 ### `SubtitleSource`
 
-Extends `SourceProvider<"srt" | "vtt">` (without inherited `language`).
+Extends `SourceProvider<"srt" | "vtt">` (keeping the inherited `fileName` and `language`) plus:
 
 | Field          | Type     | Required | Description                                      |
 | -------------- | -------- | -------- | ------------------------------------------------ |
-| `fileName`     | `string` | ✅       | Display file name.                               |
-| `language`     | `string` | ✅       | ISO language code (e.g. `"en"`).                 |
 | `languageName` | `string` | ✅       | Human-readable language name (e.g. `"English"`). |
 | `url`          | `string` | ✅       | Direct URL to the subtitle file.                 |
 
 ### Internal Types
 
-| Name                     | Definition                                         | Description                                                |
-| ------------------------ | -------------------------------------------------- | ---------------------------------------------------------- |
-| `InternalMediaSource`    | `Omit<MediaSource, "providerName" \| "scheme">`    | Use this in `getStreams()` return value inside a provider. |
-| `InternalSubtitleSource` | `Omit<SubtitleSource, "providerName" \| "scheme">` | Use this in `getSubtitles()`.                              |
+What a provider's workers return — the engine injects `scheme` / `providerName` / `format` afterwards.
+
+| Name                     | Definition                                                                              | Description                                                                                        |
+| ------------------------ | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `InternalMediaSource`    | `InternalResolvedMediaSource \| InternalLazyMediaSource`                                 | Return from `getStreams()` / `getLazyStreams()`. Same resolved-or-lazy union, minus the engine-injected fields; `format` is optional. |
+| `InternalResolvedMediaSource` | `Omit<SourceProvider<MediaFormat>, "scheme" \| "providerName" \| "format"> & { format?, playlist, lazy?: never }` | A resolved source shaped by a provider.                                     |
+| `InternalLazyMediaSource` | `Omit<SourceProvider<MediaFormat>, "scheme" \| "providerName" \| "format"> & { format?, lazy: LazySource, playlist?: never }` | A lazy handle shaped by a provider.                                            |
+| `InternalSubtitleSource` | `Omit<SubtitleSource, "providerName" \| "scheme">`                                        | Return from `getSubtitles()`.                                                                      |
 
 ---
 
@@ -466,6 +547,9 @@ Configuration object used to define a provider's identity, endpoints, and behavi
 | `xhr.headers`                          | `Record<string, string>` | ❌       | Custom headers sent with every request to this provider.                                                                                       |
 | `xhr.retries.maxAttempts`              | `number`                 | ❌       | Max retry attempts per request.                                                                                                                |
 | `xhr.retries.timeout`                  | `number`                 | ❌       | Per-attempt timeout in ms.                                                                                                                     |
+| `xhr.maxHostConcurrency`               | `number`                 | ❌       | Cap concurrent in-flight requests per host. Default `10`.                                                                                       |
+| `xhr.honorRateLimit`                   | `boolean`                | ❌       | Honor `429` `Retry-After` back-off. Default `true`.                                                                                             |
+| `xhr.coalesce`                         | `boolean`                | ❌       | Dedupe identical in-flight cacheable GETs. Default `true`.                                                                                      |
 | `useSearchAlgorithm.enabled`           | `boolean`                | ❌       | Use the search-and-score algorithm to find media.                                                                                              |
 | `useSearchAlgorithm.minimumMatchScore` | `number`                 | ❌       | Minimum score (0–170) to accept a match.                                                                                                       |
 
@@ -529,10 +613,18 @@ The runtime class built from a `ProviderConfig`. Constructed via the static fact
 const provider = Provider.create(config);
 ```
 
-| Method                                             | Returns    | Description                                                                                                                                                                                                                                                                       |
-| -------------------------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Provider.create(config)`                          | `Provider` | Creates a `Provider` instance from a `ProviderConfig`.                                                                                                                                                                                                                            |
-| `createResourceURL(requester, useLocalizedTitle?)` | `URL`      | Builds the full scrape URL by substituting endpoint placeholders with media data from the requester. `useLocalizedTitle` (default: `true`) controls whether the localized title is used instead of the original title (only applies when the provider's language is not English). |
+| Method                                                          | Returns          | Description                                                                                                                                                                                                                                       |
+| --------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Provider.create(config)`                                       | `Provider`       | Creates a `Provider` instance from a `ProviderConfig`.                                                                                                                                                                                            |
+| `config`                                                        | `ProviderConfig` | The config the instance was built from (public property).                                                                                                                                                                                        |
+| `createResourceURL(requester, localizedTextIndex?)`             | `URL`            | Builds the full scrape URL by substituting endpoint placeholders with media data. `localizedTextIndex`: `undefined` auto-selects a title by provider language, a `number` picks that `localizedTitles` index (wraps), `null` forces the original title. |
+| `createResourceUrls(requester, customURL?)`                     | `URL[]`          | Deduplicated, priority-ordered URLs: the ID-based URL first, then localized-title variants. `customURL` overrides the first entry.                                                                                                                |
+| `createPatternString(pattern, media, customPattern?, localizedTextIndex?)` | `string` | Replaces placeholders in `pattern` with media values (plus any `customPattern` extras). Same placeholder syntax as `entries`.                                                                                                            |
+| `applyPatternURL(urlOrPath, requester)`                         | `URL`            | Applies the provider's entry pattern to an arbitrary URL/path, substituting media placeholders.                                                                                                                                                   |
+| `isMediaSupported(media)`                                       | `boolean`        | Whether this provider has an entry for the media's type.                                                                                                                                                                                          |
+| `retrievePreferedIds(media)`                                    | `SupportedId`    | The preferred `{ id }` (and `{ ep_id }` for series) per the config's `mediaIds` order.                                                                                                                                                            |
+| `getPrimaryLanguage()`                                          | `string`         | The provider's primary (first) language code.                                                                                                                                                                                                     |
+| `useTranslation(media)`                                         | `boolean`        | Whether a localized title should be used (provider language differs from the media's original language).                                                                                                                                          |
 
 ---
 
@@ -540,22 +632,35 @@ const provider = Provider.create(config);
 
 Custom error types thrown during scraping operations. Both extend `Error` and can be identified with the `isCustomError()` utility.
 
+Both are constructed from a payload object (`{ code, message, details?, expose?, … }`) and expose it as readonly instance properties.
+
 ### `HttpError`
 
 Thrown when an HTTP request fails.
 
-| Field        | Type     | Required | Description       |
-| ------------ | -------- | -------- | ----------------- |
-| `statusCode` | `number` | ✅       | HTTP status code. |
-| `message`    | `string` | ✅       | Error message.    |
+| Field        | Type      | Required | Description                                                                     |
+| ------------ | --------- | -------- | ------------------------------------------------------------------------------- |
+| `code`       | `string`  | ✅       | Unique error code identifier (e.g. `"NOT_FOUND"`).                              |
+| `message`    | `string`  | ✅       | Error message (sanitized, inherited from `Error`).                             |
+| `statusCode` | `number`  | ✅       | HTTP status code. Defaults to `500` when the payload omits it.                 |
+| `expose`     | `boolean` | ✅       | Whether to expose error details to the client. Defaults to `isDevelopment()`.  |
+| `details`    | `unknown` | ❌       | Optional typed extra details (generic `TErrorDetails`).                        |
+
+> Also provides `statusPayload(withDetails = false)`, returning `{ code, message, details? }` for HTTP responses. Identify with `isHttpError(err)`.
 
 ### `ProcessError`
 
 Thrown when a provider's scraping logic encounters a non-HTTP error.
 
-| Field     | Type     | Required | Description    |
-| --------- | -------- | -------- | -------------- |
-| `message` | `string` | ✅       | Error message. |
+| Field     | Type      | Required | Description                                                                    |
+| --------- | --------- | -------- | ----------------------------------------------------------------------------- |
+| `code`    | `string`  | ✅       | Unique error code identifier (e.g. `"VALIDATION_FAILED"`).                    |
+| `message` | `string`  | ✅       | Error message (sanitized, inherited from `Error`).                           |
+| `expose`  | `boolean` | ✅       | Whether to expose error details to the client. Defaults to `isDevelopment()`. |
+| `status`  | `number`  | ❌       | Optional HTTP status code associated with the error.                         |
+| `details` | `unknown` | ❌       | Optional typed extra details (generic `TErrorDetails`).                       |
+
+> Identify with `isProcessError(err)`.
 
 ---
 
