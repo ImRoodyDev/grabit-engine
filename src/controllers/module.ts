@@ -7,6 +7,7 @@ import { ProviderManagerConfig, ResolvedProviderSource, ProvidersManifest } from
 import { DebugLogger } from "../utils/logger.ts";
 import { isCustomError, isDevelopment, isNode, minutesToMilliseconds } from "../utils/standard.ts";
 import { CACHE, createSourceCacheKey, createHealthCacheKey } from "../services/cache.ts";
+import * as ProviderStore from "../services/providerStore.ts";
 import { countValidationMessages, formatValidationIssues } from "../utils/validator.ts";
 
 /** How long metric writes are coalesced before hitting the cache. */
@@ -56,6 +57,8 @@ export abstract class ModuleManager {
 		// Only start auto-update for remote sources
 		if (!this.isRemote) return;
 		// Off-Node the periodic re-fetch + re-eval causes UI jank, so it is opt-in there.
+		// Persisted bundles are still pruned once at startup regardless; enabling
+		// autoUpdateOnNative just adds the recurring prune that rides this interval.
 		if (!isNode() && !this.config.autoUpdateOnNative) {
 			this.logger.info("Auto-update interval skipped on native/browser (set autoUpdateOnNative to enable)");
 			return;
@@ -213,6 +216,10 @@ export abstract class ModuleManager {
 					this.loadedModules[existingIndex] = result.module;
 				} else this.loadedModules.push(result.module);
 			}
+
+			// Delete persisted bundles that have aged out (old versions no longer read),
+			// so the persistent store doesn't grow unbounded across version bumps.
+			await this.prunePersistentStore();
 		} catch (error) {
 			if (isCustomError(error)) throw error;
 			this.logger.error("Failed to refresh provider modules", error);
@@ -221,6 +228,21 @@ export abstract class ModuleManager {
 				message: "An error occurred while refreshing provider modules",
 				details: isCustomError(error) ? error.details : undefined
 			});
+		}
+	}
+
+	/** Delete expired persisted bundles from the global index. Runs once at startup and
+	 *  on every autoUpdate tick, so the store is cleaned even when autoUpdate is off.
+	 *  The index is global, so this also clears leftovers from sources no longer in use. */
+	protected async prunePersistentStore(): Promise<void> {
+		const source = this.config.source;
+		if (source.type !== "github" || !source.persistentStore) return;
+		try {
+			const removed = await ProviderStore.pruneExpired(source.persistentStore);
+			if (removed > 0) this.logger.info(`Pruned ${removed} expired persisted module(s) from storage`);
+		} catch (error) {
+			// Never let cleanup break startup/refresh.
+			this.logger.debug(`Failed to prune persisted store: ${error instanceof Error ? error.message : error}`);
 		}
 	}
 

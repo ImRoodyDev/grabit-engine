@@ -91,6 +91,11 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 			// Restore previously persisted health metrics (if available)
 			manager.restoreMetrics();
 
+			// One-shot cleanup of expired persisted bundles, so stale storage is cleared
+			// even when autoUpdate is off (e.g. native without autoUpdateOnNative).
+			// Fire-and-forget: it self-handles errors and must not delay readiness.
+			void manager.prunePersistentStore();
+
 			// Start auto-update service
 			manager.startAutoUpdateService();
 			return manager;

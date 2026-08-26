@@ -199,13 +199,14 @@ export namespace GithubService {
 		const store = source.persistentStore;
 		if (!store) return githubFetchManifest(opts);
 
-		const stored = await ProviderStore.readManifest(store, sourceKey);
+		const ttl = source.persistentStoreTTL;
+		const stored = await ProviderStore.readManifest(store, sourceKey, ttl);
 		try {
 			const res = await fetchRawFileConditional(opts, "manifest.json", stored?.etag);
 			if (res.status === 304 && stored) return stored.manifest;
 
 			const manifest = parseManifest(opts, res.text);
-			await ProviderStore.writeManifest(store, sourceKey, { etag: res.etag, manifest });
+			await ProviderStore.writeManifest(store, sourceKey, { etag: res.etag, manifest }, ttl);
 			return manifest;
 		} catch (error) {
 			if (stored) {
@@ -320,13 +321,15 @@ export namespace GithubService {
 			Object.entries(providers).map(([scheme, manifest]) =>
 				limit(async () => {
 					// Reuse persisted source when the version still matches; only fetch on a miss.
-					let sourceCode: string | null = store ? await ProviderStore.readModuleSource(store, sourceKey, scheme, manifest.version) : null;
+					// TTL refreshes the key's expiry on reuse so active versions aren't pruned.
+					const ttl = source.persistentStoreTTL;
+					let sourceCode: string | null = store ? await ProviderStore.readModuleSource(store, sourceKey, scheme, manifest.version, ttl) : null;
 					const fetchPath = `${pathJoin(manifest.dir, scheme)}/index.js`;
 					const fullApiUrl = `https://raw.githubusercontent.com/${opts.owner}/${opts.repo}/${opts.branch}/${opts.rootDir}${fetchPath}`;
 					if (sourceCode == null) {
 						try {
 							sourceCode = await fetchFileFromGitHub(opts, fetchPath);
-							if (store) await ProviderStore.writeModuleSource(store, sourceKey, scheme, manifest.version, sourceCode);
+							if (store) await ProviderStore.writeModuleSource(store, sourceKey, scheme, manifest.version, sourceCode, ttl);
 						} catch (error) {
 							Logger.error(
 								`[GithubService] Failed to fetch source for provider "${scheme}":\n` +

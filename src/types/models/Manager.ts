@@ -100,6 +100,13 @@ export type GithubSource = {
 	 */
 	persistentStore?: PersistentStore;
 
+	/**
+	 * How long a persisted bundle may sit unused before autoUpdate prunes it from
+	 * storage (ms). Reused bundles have their expiry refreshed; only superseded
+	 * versions age out. Guards `persistentStore` from growing forever. Default 7 days.
+	 */
+	persistentStoreTTL?: number;
+
 	/** Only load a subset of providers — skips fetch + eval for the rest. */
 	filter?: ProviderFilter;
 
@@ -291,14 +298,12 @@ export type ProviderManagerConfig = {
 		TTL: number;
 
 		/**
-		 * Optional TTL for caching provider modules (extension).
-		 * Useful for remote sources to avoid fetching and re-initializing modules too frequently,
-		 *
-		 * while still ensuring they are updated periodically.
+		 * In-memory TTL for resolved provider modules (ms). Controls how long the
+		 * loaded/evaluated modules are reused from RAM before re-initializing, so
+		 * remote sources aren't re-fetched every call. This is runtime-only — it is
+		 * NOT the on-disk lifetime; that is `GithubSource.persistentStoreTTL`.
 		 *
 		 * @default "900_000" (15 minutes)
-		 *
-		 * NOTE: This is separate from the general cache TTL to allow for different caching strategies for module data vs. provider data.
 		 */
 		MODULE_TTL?: number;
 
