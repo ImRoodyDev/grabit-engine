@@ -1,0 +1,42 @@
+{
+  "name": "demo",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "@craftzdog/react-native-buffer": "6.1.0",
+    "@preeternal/react-native-cookie-manager": "^6.4.0",
+    "expo": "53.0.27",
+    "expo-asset": "~11.1.7",
+    "expo-constants": "~17.1.7",
+    "expo-linking": "~7.1.7",
+    "expo-router": "~5.1.10",
+    "expo-status-bar": "~2.2.3",
+    "expo-video": "~2.2.3",
+    "grabit-engine": "file:..",
+    "react": "19.0.0",
+    "react-compiler-runtime": "^19.0.0-beta-af1b7da-20250417",
+    "react-dom": "19.0.0",
+    "react-native": "0.79.6",
+    "react-native-nitro-modules": "^0.36.1",
+    "react-native-quick-crypto": "^0.7.17",
+    "react-native-safe-area-context": "5.4.0",
+    "react-native-webview": "13.13.5"
+  },
+  "devDependencies": {
+    "@types/react": "~19.0.10",
+    "typescript": "~5.8.3",
+    "babel-plugin-react-compiler": "^19.0.0-beta-af1b7da-20250417",
+    "babel-plugin-transform-remove-console": "^6.9.4"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "expo lint",
+    "lint:fix": "expo lint --fix",
+    "prebuild": "expo prebuild --clean",
+    "android": "expo run:android",
+    "android:device": "expo run:android --device",
+    "start": "expo start -c",
+    "ios": "expo run:ios"
+  },
+  "private": true
+}
