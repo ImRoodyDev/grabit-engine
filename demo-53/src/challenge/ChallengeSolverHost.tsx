@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useSyncExternalStore } from 'react';
-import { StyleSheet, View } from 'react-native';
-import { WebView, type WebViewMessageEvent } from 'react-native-webview';
-import CookieManager from '@preeternal/react-native-cookie-manager';
-import { challengeQueue, type ChallengeJob, type ChallengeResult } from './challengeQueue';
+import React, { useEffect, useRef, useSyncExternalStore } from "react";
+import { StyleSheet, View } from "react-native";
+import { WebView, type WebViewMessageEvent } from "react-native-webview";
+import CookieManager from "@preeternal/react-native-cookie-manager";
+import { challengeQueue, type ChallengeJob, type ChallengeResult } from "./challengeQueue";
 
 // Posts the current HTML + UA back to RN once per second, so we always hold the
 // latest solved page while polling the native cookie store for the target cookie.
@@ -22,23 +22,48 @@ const INJECTED = `
 true;
 `;
 
+// Markers present on a Cloudflare (or similar) interstitial. While any of these
+// show up, the real page hasn't loaded yet; once they're gone, we're through —
+// even if the cookie never appeared (CF off, already cleared, or HttpOnly cookie).
+const CHALLENGE_MARKERS = [
+	"checking your browser",
+	"cf-browser-verification",
+	"attention required",
+	"just a moment",
+	"cf-browser-verification",
+	"challenge-platform",
+	"cf-challenge",
+	"_cf_chl_opt",
+	'id="challenge-form"',
+	"checking your browser",
+	"cf-turnstile",
+	"enable javascript and cookies to continue"
+];
+
+/** True while the HTML still looks like a challenge interstitial. */
+function looksLikeChallenge(html: string): boolean {
+	if (!html) return false;
+	const h = html.toLowerCase();
+	return CHALLENGE_MARKERS.some((m) => h.includes(m));
+}
+
 /** Drives a single challenge in a hidden WebView until solved or timed out. */
 function SolverWebView({ job }: { job: ChallengeJob }) {
-	const latest = useRef({ html: '', ua: job.userAgent ?? '' });
+	const latest = useRef({ html: "", ua: job.userAgent ?? "" });
 	const done = useRef(false);
 	const startedAt = useRef(Date.now());
+	const deadline = Date.now() + Math.max(30_000, job.timeoutMs);
 
 	useEffect(() => {
-		console.info('[Challenge] browser opened', {
+		console.info("[Challenge] browser opened", {
 			url: job.url,
 			waitForCookie: job.waitForCookie,
-			timeoutMs: job.timeoutMs,
+			timeoutMs: deadline
 		});
-		const deadline = Date.now() + job.timeoutMs;
 
 		const readCookies = async (): Promise<Record<string, string>> => {
 			const jar = await CookieManager.get(job.url, true).catch((error) => {
-				console.warn('[Challenge] cookie read failed', { url: job.url, error });
+				console.warn("[Challenge] cookie read failed", { url: job.url, error });
 				return {};
 			});
 			const map: Record<string, string> = {};
@@ -49,10 +74,10 @@ function SolverWebView({ job }: { job: ChallengeJob }) {
 		const finish = (result: ChallengeResult, passed: boolean) => {
 			if (done.current) return;
 			done.current = true;
-			console.info('[Challenge] browser closed', {
+			console.info("[Challenge] browser closed", {
 				url: job.url,
 				passed,
-				elapsedMs: Date.now() - startedAt.current,
+				elapsedMs: Date.now() - startedAt.current
 			});
 			job.resolve(result);
 			challengeQueue.remove(job.id);
@@ -60,27 +85,34 @@ function SolverWebView({ job }: { job: ChallengeJob }) {
 
 		const timer = setInterval(async () => {
 			const cookieMap = await readCookies();
-			// Solved when the target cookie appears (cf_clearance), or — if none was
-			// requested — once the page has produced HTML. Give up at the deadline.
-			const solved = job.waitForCookie ? cookieMap[job.waitForCookie] != null : latest.current.html.length > 0;
+			const html = latest.current.html.trim();
+
+			// Primary signal: the requested cookie appeared (cf_clearance).
+			const cookieSolved = job.waitForCookie ? cookieMap[job.waitForCookie] != null : false;
+			// Fallback: we have a real page that is NOT the interstitial. Covers sites where
+			// CF is off / already cleared, or an HttpOnly cookie we can't read — so we stop
+			// waiting the full timeout for a cookie that will never come.
+			const pageSolved = !looksLikeChallenge(html);
+			const solved = cookieSolved || pageSolved;
 			const expired = Date.now() >= deadline;
 			if (!solved && !expired) return;
 
 			clearInterval(timer);
 			const elapsedMs = Date.now() - startedAt.current;
 			if (solved) {
-				console.info('[Challenge] passed', {
+				console.info("[Challenge] passed", {
 					url: job.url,
 					elapsedMs,
+					via: cookieSolved ? "cookie" : "page",
 					cookies: Object.keys(cookieMap).length,
-					htmlBytes: latest.current.html.length,
+					htmlBytes: html.length
 				});
 			} else {
-				console.warn('[Challenge] not solved (timed out)', {
+				console.warn("[Challenge] not solved (timed out)", {
 					url: job.url,
 					elapsedMs,
 					cookies: Object.keys(cookieMap).length,
-					gotHtml: latest.current.html.length > 0,
+					gotHtml: latest.current.html.length > 0
 				});
 			}
 
@@ -89,11 +121,11 @@ function SolverWebView({ job }: { job: ChallengeJob }) {
 					html: latest.current.html,
 					cookies: Object.entries(cookieMap)
 						.map(([name, value]) => `${name}=${value}`)
-						.join('; '),
+						.join("; "),
 					cookieMap,
-					userAgent: latest.current.ua || job.userAgent || '',
+					userAgent: latest.current.ua || job.userAgent || ""
 				},
-				solved,
+				solved
 			);
 		}, 500);
 
@@ -116,11 +148,9 @@ function SolverWebView({ job }: { job: ChallengeJob }) {
 			source={{ uri: job.url, headers: job.headers }}
 			injectedJavaScript={INJECTED}
 			onMessage={onMessage}
-			onLoadEnd={() => console.debug('[Challenge] page loaded', { url: job.url })}
-			onError={({ nativeEvent }) => console.error('[Challenge] webview error', { url: job.url, error: nativeEvent })}
-			onHttpError={({ nativeEvent }) =>
-				console.warn('[Challenge] http error', { url: job.url, status: nativeEvent.statusCode })
-			}
+			onLoadEnd={() => console.debug("[Challenge] page loaded", { url: job.url })}
+			onError={({ nativeEvent }) => console.error("[Challenge] webview error", { url: job.url, error: nativeEvent })}
+			onHttpError={({ nativeEvent }) => console.warn("[Challenge] http error", { url: job.url, status: nativeEvent.statusCode })}
 			// cf_clearance is HttpOnly, so shared/third-party cookies must be enabled
 			// for CookieManager to read it back natively.
 			sharedCookiesEnabled
@@ -150,6 +180,6 @@ export default function ChallengeSolverHost() {
 const styles = StyleSheet.create({
 	// Full-screen but behind everything and invisible: the page still lays out and
 	// runs its JS challenge, yet the user never sees or touches it.
-	host: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: -1, opacity: 0 },
-	web: { flex: 1, backgroundColor: 'transparent' },
+	host: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: -1, opacity: 0 },
+	web: { flex: 1, backgroundColor: "transparent" }
 });

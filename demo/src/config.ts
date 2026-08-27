@@ -23,9 +23,9 @@ export const GRABIT_MANAGER_CONFIG = {
 	tmdbApiKeys: [...TMDB_API_KEYS],
 	cache: { enabled: true, TTL: 300_000 },
 	scrapeConfig: {
-		concurrentOperations: 2,
+		concurrentOperations: 1,
 		maxAttempts: 2,
-		operationTimeout: 20_000,
+		operationTimeout: 60_000 * 30, // 30 minutes
 		errorThresholdRate: 2
 	}
 };

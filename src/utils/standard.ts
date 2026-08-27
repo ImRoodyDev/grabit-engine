@@ -35,16 +35,24 @@ export async function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Run a function with retries and delay between attempts */
-export async function excuteWithRetries<T>(fn: () => Promise<T>, maxAttempts: number = 1, backoffDelay: number = 0): Promise<T> {
+/** Run a function with retries and delay between attempts.
+ *  Pass `signal` so a timed-out / cancelled operation stops retrying instead of
+ *  launching more work after it has already given up. */
+export async function excuteWithRetries<T>(fn: () => Promise<T>, maxAttempts: number = 1, backoffDelay: number = 0, signal?: AbortSignal): Promise<T> {
 	let lastError: unknown;
-	for (let attempt = 1; attempt <= Math.max(maxAttempts, 1); attempt++) {
+	const total = Math.max(maxAttempts, 1);
+	for (let attempt = 1; attempt <= total; attempt++) {
+		// Don't even start once the operation is aborted.
+		if (signal?.aborted) throw lastError ?? signal.reason ?? new Error("Operation aborted");
 		try {
 			return await fn();
 		} catch (error) {
 			lastError = error;
-			Logger.warn(`Attempt ${attempt} failed. Retrying in ${backoffDelay}ms...`);
-			if (attempt < maxAttempts) {
+			// Aborted mid-flight: retrying just re-issues cancelled work, so stop now.
+			if (signal?.aborted) break;
+			// Only announce a retry when one will actually happen.
+			if (attempt < total) {
+				Logger.warn(`Attempt ${attempt} failed. Retrying${backoffDelay > 0 ? ` in ${backoffDelay}ms` : ""}...`);
 				if (backoffDelay > 0) await delay(backoffDelay); // Wait before retrying
 			}
 		}

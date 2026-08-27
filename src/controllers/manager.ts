@@ -220,7 +220,9 @@ export class GrabitManager extends ModuleManager implements IProviderManagerWork
 				limit(async () => {
 					startedCount++; // Increment synchronously before any await so quorum can distinguish active vs queued work.
 					try {
-						const result = await excuteWithRetries(() => fn(module, limit, abortController.signal), maxAttempts);
+						// Pass the signal so retries stop once the operation is aborted (timeout /
+						// closeOperations); without it a failing provider kept re-issuing work.
+						const result = await excuteWithRetries(() => fn(module, limit, abortController.signal), maxAttempts, 0, abortController.signal);
 						// A provider that returns nothing is not healthy — a site redesign makes
 						// selectors match nothing without throwing, and scoring that as a success
 						// meant auto-disable could never trip for it.

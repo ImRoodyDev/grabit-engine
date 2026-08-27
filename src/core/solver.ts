@@ -17,17 +17,42 @@ export function setChallengeSolver(solver: ChallengeSolver | null): void {
 	_hostSolver = solver;
 }
 
+/** Error thrown when the operation was cancelled before/while solving a challenge. */
+function abortedError(): ProcessError {
+	return new ProcessError({ code: "OPERATION_ABORTED", message: "Challenge solving aborted", expose: false });
+}
+
 /** Solve a Cloudflare/anti-bot interstitial and return the earned html + cookies + UA. */
 export async function solveChallenge(url: URL, requester: ScrapeRequester, options: ChallengeSolveOptions = {}): Promise<ChallengeSolveResult> {
-	if (_hostSolver) return _hostSolver.solve(url, requester, options);
-	if (!isNode()) {
-		throw new ProcessError({
-			code: "NO_CHALLENGE_SOLVER",
-			message: "No challenge solver available. Set one via setChallengeSolver() (e.g. a hidden RN WebView).",
-			expose: false
-		});
-	}
-	return solveWithPuppeteer(url, requester, options);
+	const signal = requester.signal;
+	// Operation already cancelled (timeout / closeOperations): don't even start.
+	if (signal?.aborted) throw abortedError();
+
+	// The actual solve — host-injected solver (RN WebView / FlareSolverr) or the Node pool.
+	const run = (): Promise<ChallengeSolveResult> => {
+		if (_hostSolver) return _hostSolver.solve(url, requester, options);
+		if (!isNode()) {
+			throw new ProcessError({
+				code: "NO_CHALLENGE_SOLVER",
+				message: "No challenge solver available. Set one via setChallengeSolver() (e.g. a hidden RN WebView).",
+				expose: false
+			});
+		}
+		return solveWithPuppeteer(url, requester, options);
+	};
+
+	if (!signal) return run();
+
+	// Reject as soon as the operation aborts so a provider's challenge loop stops issuing
+	// more work, instead of running to the solver's own (e.g. 20s) timeout each time.
+	return new Promise<ChallengeSolveResult>((resolve, reject) => {
+		const onAbort = () => reject(abortedError());
+		signal.addEventListener("abort", onAbort, { once: true });
+		Promise.resolve()
+			.then(run)
+			.then(resolve, reject)
+			.finally(() => signal.removeEventListener("abort", onAbort));
+	});
 }
 
 /** Default Node solver: drive the puppeteer pool, then read the page's cookies + UA. */
@@ -51,6 +76,9 @@ async function solveWithPuppeteer(url: URL, requester: ScrapeRequester, options:
 		if (options.waitForCookie) {
 			const deadline = Date.now() + (options.timeoutMs ?? 20000);
 			while (Date.now() < deadline) {
+				// Operation aborted (timeout / closeOperations): stop polling and let the
+				// finally close the tab, instead of holding a browser for the full timeout.
+				if (requester.signal?.aborted) break;
 				if ((await readCookies()).some((c) => c.name === options.waitForCookie)) break;
 				await new Promise((r) => setTimeout(r, 500));
 			}
