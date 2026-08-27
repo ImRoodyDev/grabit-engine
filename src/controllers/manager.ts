@@ -22,6 +22,20 @@ import pLimit, { LimitFunction } from "p-limit";
 import { ModuleManager, ProviderHealthReport, ProviderMetrics } from "./module.ts";
 import { TMDB } from "../services/tmdb.ts";
 
+// Hermes (React Native) has AbortController but not the static AbortSignal.abort();
+// p-limit's rejectOnClear path calls it in clearQueue(), crashing with
+// "undefined is not a function". Define a spec-equivalent shim when missing.
+{
+	const AS = AbortSignal as unknown as { abort?: (reason?: unknown) => AbortSignal };
+	if (typeof AS !== "undefined" && typeof AS.abort !== "function") {
+		AS.abort = (reason?: unknown): AbortSignal => {
+			const controller = new AbortController();
+			controller.abort(reason);
+			return controller.signal;
+		};
+	}
+}
+
 /**
  * GrabitManager is the main class responsible
  * for managing provider modules, including loading, caching, refreshing, and health monitoring.
