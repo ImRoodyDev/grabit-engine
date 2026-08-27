@@ -1,34 +1,35 @@
 {
-	"name": "demo",
-	"version": "1.0.0",
-	"main": "index.ts",
-	"dependencies": {
-		"@craftzdog/react-native-buffer": "^6.1.2",
-		"@preeternal/react-native-cookie-manager": "^6.4.0",
-		"expo": "~57.0.7",
-		"expo-status-bar": "~57.0.1",
-		"expo-video": "~57.0.1",
-		"grabit-engine": "file:..",
-		"react": "19.2.3",
-		"react-native": "0.86.0",
-		"react-native-nitro-modules": "^0.36.1",
-		"react-native-quick-crypto": "^0.7.17",
-		"react-native-safe-area-context": "~5.7.0",
-		"react-native-webview": "13.16.1"
-	},
-	"devDependencies": {
-		"@types/react": "~19.2.2",
-		"typescript": "~6.0.3"
-	},
-	"scripts": {
-		"typecheck": "tsc --noEmit",
-		"lint": "expo lint",
-		"lint:fix": "expo lint --fix",
-		"prebuild": "expo prebuild --clean",
-		"android": "expo run:android",
-		"android:device": "expo run:android --device",
-		"start": "expo start -c",
-		"ios": "expo run:ios"
-	},
-	"private": true
+  "name": "demo",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "@craftzdog/react-native-buffer": "^6.1.2",
+    "@preeternal/react-native-cookie-manager": "^6.4.0",
+    "expo": "53.0.27",
+    "expo-status-bar": "~2.2.3",
+    "expo-video": "~2.2.3",
+    "grabit-engine": "file:..",
+    "react": "19.0.0",
+    "react-compiler-runtime": "^19.0.0-beta-af1b7da-20250417",
+    "react-native": "0.79.6",
+    "react-native-nitro-modules": "^0.36.1",
+    "react-native-quick-crypto": "^0.7.17",
+    "react-native-safe-area-context": "5.4.0",
+    "react-native-webview": "13.13.5"
+  },
+  "devDependencies": {
+    "@types/react": "~19.0.10",
+    "typescript": "~5.8.3"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "expo lint",
+    "lint:fix": "expo lint --fix",
+    "prebuild": "expo prebuild --clean",
+    "android": "expo run:android",
+    "android:device": "expo run:android --device",
+    "start": "expo start -c",
+    "ios": "expo run:ios"
+  },
+  "private": true
 }
