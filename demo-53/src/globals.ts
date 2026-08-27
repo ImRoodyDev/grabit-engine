@@ -4,7 +4,6 @@ import { setupGrabitGlobals, setChallengeSolver, type GrabitGlobalsReport } from
 import { Buffer } from "@craftzdog/react-native-buffer";
 import QuickCrypto from "react-native-quick-crypto";
 import { challengeQueue } from "./challenge/challengeQueue";
-import { config } from "process";
 
 export type DemoGlobalsReport = GrabitGlobalsReport & { engine: string };
 

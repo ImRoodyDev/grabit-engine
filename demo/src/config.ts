@@ -1,4 +1,20 @@
-import { moduleResolver } from "grabit-engine";
+import { Platform } from "react-native";
+import { moduleResolver, type RawScrapeRequester, UseSourcesConfig } from "grabit-engine";
+
+// Desktop UAs used on native. The hidden challenge WebView otherwise defaults to the
+// Android mobile UA, which some hosts (e.g. mixdrop) serve a stripped page to. cf_clearance
+// binds to the UA, so this is picked once per app session and reused for every request.
+const DESKTOP_USER_AGENTS = [
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 Edg/144.0.0.0",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:131.0) Gecko/20100101 Firefox/131.0",
+	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
+];
+
+// One UA per app launch: random enough to avoid a single shared fingerprint, stable so
+// cf_clearance stays valid across a scrape. On web, let the browser send its own UA.
+const SESSION_USER_AGENT: string | undefined = Platform.OS === "web" ? undefined : DESKTOP_USER_AGENTS[Math.floor(Math.random() * DESKTOP_USER_AGENTS.length)];
 
 /**
  * TMDB keys come from the environment so no secret is committed.
@@ -12,7 +28,7 @@ const TMDB_API_KEYS = (process.env.EXPO_PUBLIC_TMDB_API_KEYS ?? "")
 export const HAS_TMDB_KEY = TMDB_API_KEYS.length > 0;
 
 /** Manager config is a singleton and independent of the scrape request. */
-export const GRABIT_MANAGER_CONFIG = {
+export const GRABIT_MANAGER_CONFIG: UseSourcesConfig["managerConfig"] = {
 	source: {
 		type: "github" as const,
 		url: "https://github.com/ImRoodyDev/grabit-library",
@@ -54,7 +70,7 @@ export const DEFAULT_FORM: FormState = {
 };
 
 /** Builds a RawScrapeRequester from form state, omitting blank optional fields. */
-export function buildRequest(form: FormState) {
+export function buildRequest(form: FormState): RawScrapeRequester {
 	const year = Number(form.releaseYear);
 	const base = {
 		tmdbId: form.tmdbId.trim(),
@@ -67,5 +83,5 @@ export function buildRequest(form: FormState) {
 			? { type: "serie" as const, ...base, season: Number(form.season) || 1, episode: Number(form.episode) || 1 }
 			: { type: "movie" as const, ...base };
 
-	return { media, targetLanguageISO: form.targetLanguageISO.trim() || "en" };
+	return { media, targetLanguageISO: form.targetLanguageISO.trim() || "en", userAgent: SESSION_USER_AGENT };
 }

@@ -14,8 +14,11 @@ type Props = {
 
 /** Media playlists are either a URL string or a list of quality variants. */
 function mediaLinks(source: MediaSource): { label: string; url: string }[] {
-	if (typeof source.playlist === 'string') return [{ label: 'stream', url: source.playlist }];
-	return source.playlist.map((v) => ({ label: String(v.resolution ?? v.dimensions), url: v.source }));
+	const playlist = source.playlist;
+	// Lazy sources carry no playlist (resolved on play), so there is nothing to list.
+	if (playlist == null) return [];
+	if (typeof playlist === 'string') return [{ label: 'stream', url: playlist }];
+	return playlist.map((v) => ({ label: String(v.resolution ?? v.dimensions), url: v.source }));
 }
 
 function SourceRowBase({ source, font, space, isTV, onPress }: Props) {
@@ -65,7 +68,7 @@ function SourceRowBase({ source, font, space, isTV, onPress }: Props) {
 					<Text style={[styles.meta, { fontSize: font(11) }]}>{source.scheme}</Text>
 					<Text style={styles.dot}>·</Text>
 					<Text style={[styles.meta, { fontSize: font(11) }]}>{lang}</Text>
-					{source.xhr?.haveCorsPolicy && (
+					{source.xhr?.flags?.includes('CORS_BLOCKED') && (
 						<>
 							<Text style={styles.dot}>·</Text>
 							<Text style={[styles.meta, styles.cors, { fontSize: font(11) }]}>needs headers</Text>

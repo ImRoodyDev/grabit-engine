@@ -17,11 +17,14 @@ type Props = {
 type Variant = { label: string; url: string };
 
 function variantsOf(source: MediaSource): Variant[] {
-	if (typeof source.playlist === 'string') return [{ label: 'Auto', url: source.playlist }];
-	return source.playlist.map((v) => ({ label: String(v.resolution ?? v.dimensions ?? 'stream'), url: v.source }));
+	const playlist = source.playlist;
+	// Lazy sources carry no playlist (resolved on play), so there is nothing to list.
+	if (playlist == null) return [];
+	if (typeof playlist === 'string') return [{ label: 'Auto', url: playlist }];
+	return playlist.map((v) => ({ label: String(v.resolution ?? v.dimensions ?? 'stream'), url: v.source }));
 }
 
-const headersOf = (xhr?: { haveCorsPolicy: boolean; headers: Record<string, string> }) =>
+const headersOf = (xhr?: { headers?: Record<string, string> }) =>
 	xhr && Object.keys(xhr.headers ?? {}).length > 0 ? xhr.headers : undefined;
 
 /**

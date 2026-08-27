@@ -138,6 +138,11 @@ function SolverWebView({ job }: { job: ChallengeJob }) {
 			const data = JSON.parse(event.nativeEvent.data) as { html?: string; ua?: string };
 			if (data.html) latest.current.html = data.html;
 			if (data.ua) latest.current.ua = data.ua;
+			console.info("[Challenge] page update", {
+				url: job.url,
+				htmlBytes: data.html?.length ?? 0,
+				ua: data.ua ?? "unknown"
+			});
 		} catch {
 			/* ignore malformed messages */
 		}
