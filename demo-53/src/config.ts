@@ -1,20 +1,5 @@
-import { Platform } from "react-native";
 import { moduleResolver, type RawScrapeRequester, UseSourcesConfig } from "grabit-engine";
-
-// Desktop UAs used on native. The hidden challenge WebView otherwise defaults to the
-// Android mobile UA, which some hosts (e.g. mixdrop) serve a stripped page to. cf_clearance
-// binds to the UA, so this is picked once per app session and reused for every request.
-const DESKTOP_USER_AGENTS = [
-	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
-	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 Edg/144.0.0.0",
-	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
-	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:131.0) Gecko/20100101 Firefox/131.0",
-	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
-];
-
-// One UA per app launch: random enough to avoid a single shared fingerprint, stable so
-// cf_clearance stays valid across a scrape. On web, let the browser send its own UA.
-const SESSION_USER_AGENT: string | undefined = Platform.OS === "web" ? undefined : DESKTOP_USER_AGENTS[Math.floor(Math.random() * DESKTOP_USER_AGENTS.length)];
+import { getSessionUserAgent } from "./challenge/deviceUserAgent";
 
 /**
  * TMDB keys come from the environment so no secret is committed.
@@ -86,5 +71,7 @@ export function buildRequest(form: FormState): RawScrapeRequester {
 			? { type: "serie" as const, ...base, season: Number(form.season) || 1, episode: Number(form.episode) || 1 }
 			: { type: "movie" as const, ...base };
 
-	return { media, targetLanguageISO: form.targetLanguageISO.trim() || "en", userAgent: SESSION_USER_AGENT };
+	// Real device UA (wv-stripped), captured by the challenge host's probe. Undefined
+	// until the probe resolves / on web — the challenge WebView then uses the device UA.
+	return { media, targetLanguageISO: form.targetLanguageISO.trim() || "en", userAgent: getSessionUserAgent() };
 }
