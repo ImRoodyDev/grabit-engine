@@ -3,8 +3,7 @@
 // for the device's real UA but can stall on a spoofed/desktop/wv one — so we reuse
 // this exact string for the challenge WebView and every scrape fetch.
 
-let sessionUserAgent: string | undefined =
-	"Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36";
+let sessionUserAgent: string | undefined;
 
 /** The captured UA (wv-stripped), or undefined until the probe resolves / on web. */
 export function getSessionUserAgent(): string | undefined {

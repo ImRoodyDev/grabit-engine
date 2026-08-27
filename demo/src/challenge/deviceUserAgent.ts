@@ -4,7 +4,6 @@
 // this exact string for the challenge WebView and every scrape fetch.
 
 let sessionUserAgent: string | undefined;
-
 /** The captured UA (wv-stripped), or undefined until the probe resolves / on web. */
 export function getSessionUserAgent(): string | undefined {
 	return sessionUserAgent;
